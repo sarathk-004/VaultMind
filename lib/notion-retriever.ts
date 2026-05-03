@@ -176,7 +176,7 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     const pageIds = Array.from(pages.keys())
     const BATCH = 8
     let linkEdgeCount = 0
-    const docTexts = new Map<string, string>()
+    const docTexts = new Map<string, { title: string; body: string }>()
 
     for (let i = 0; i < pageIds.length; i += BATCH) {
       const batch = pageIds.slice(i, i + BATCH)
@@ -188,10 +188,7 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       results.forEach((res, idx) => {
         const sourceId = batch[idx]
         const meta = pages.get(sourceId)
-        // Combine the page's title (weighted) with its body for TF-IDF.
-        // Titles get repeated so they carry more weight in the cosine score.
-        const titleBoost = meta ? `${meta.title} ${meta.title} ${meta.title}` : ""
-        docTexts.set(sourceId, `${titleBoost} ${res.text}`.trim())
+        docTexts.set(sourceId, { title: meta?.title ?? "", body: res.text })
 
         for (const targetId of res.ids) {
           if (pages.has(targetId)) {
@@ -202,11 +199,12 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       })
     }
 
-    // Semantic edges: TF-IDF + cosine similarity over title+body text.
-    // This is what surfaces conceptual relationships — e.g. "ML Roadmap"
-    // ↔ "Probability and Statistics for ML" without any explicit link.
-    const { buildSemanticEdges } = await import("./tfidf")
-    const semanticPairs = buildSemanticEdges(docTexts, { topK: 4, minScore: 0.18 })
+    // Semantic edges: blended concept-tag + stemmed-title + TF-IDF similarity.
+    // Surfaces conceptual relationships even between pages that share zero
+    // literal tokens (e.g. "MS in US" ↔ "University Comparisons" via the
+    // shared `us_edu` concept tag).
+    const { buildSemanticEdges } = await import("./page-similarity")
+    const semanticPairs = buildSemanticEdges(docTexts, { topK: 5, minScore: 0.06 })
     let semanticEdgeCount = 0
     for (const pair of semanticPairs) {
       // Avoid duplicating an existing parent/reference edge.
