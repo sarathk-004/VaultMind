@@ -45,6 +45,42 @@ function seededRandom(seed: string) {
  *   - Edges: spring forces along graph edges.
  *   - Collision pass: rectangle overlap resolution.
  */
+// Add this helper function above simulateLayout
+function getConnectedComponents(nodes: GraphNode[], validEdges: GraphEdge[]): Map<string, string> {
+  const adj = new Map<string, string[]>()
+  nodes.forEach(n => adj.set(n.id, []))
+  validEdges.forEach(e => {
+    if (adj.has(e.from) && adj.has(e.to)) {
+      adj.get(e.from)!.push(e.to)
+      adj.get(e.to)!.push(e.from)
+    }
+  })
+
+  const visited = new Set<string>()
+  const nodeToComponent = new Map<string, string>()
+  let compId = 0
+
+  for (const node of nodes) {
+    if (!visited.has(node.id)) {
+      const cName = `island_${compId++}`
+      const queue = [node.id]
+      visited.add(node.id)
+      
+      while (queue.length > 0) {
+        const curr = queue.shift()!
+        nodeToComponent.set(curr, cName)
+        for (const neighbor of adj.get(curr)!) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor)
+            queue.push(neighbor)
+          }
+        }
+      }
+    }
+  }
+  return nodeToComponent
+}
+
 export function simulateLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -60,49 +96,66 @@ export function simulateLayout(
   const cx = width / 2
   const cy = height / 2
 
+  // 1. Filter edges to valid ones first
+  const validNodeIds = new Set(nodes.map(n => n.id))
+  const validEdges = edges.filter(e => validNodeIds.has(e.from) && validNodeIds.has(e.to))
+
+  // 2. Mathematically group nodes into connected islands
+  const nodeToComponent = getConnectedComponents(nodes, validEdges)
+  
   const clusterSize = new Map<string, number>()
-  for (const n of nodes) {
-    const c = n.cluster ?? n.id
+  nodes.forEach(n => {
+    const c = nodeToComponent.get(n.id)!
     clusterSize.set(c, (clusterSize.get(c) ?? 0) + 1)
-  }
-  const multiClusters = Array.from(clusterSize.keys())
+  })
+
+  // Separate islands (multi-node) from floaters (single-node)
+  const multiComps = Array.from(clusterSize.keys())
     .filter(c => (clusterSize.get(c) ?? 0) > 1)
     .sort((a, b) => (clusterSize.get(b) ?? 0) - (clusterSize.get(a) ?? 0))
-  const singletonClusters = Array.from(clusterSize.keys()).filter(
-    c => (clusterSize.get(c) ?? 0) === 1,
-  )
+  
+  const singleComps = Array.from(clusterSize.keys())
+    .filter(c => (clusterSize.get(c) ?? 0) === 1)
 
-  const minSize = Math.min(width, height)
-  // Spread them out much wider initially so they don't start in a pile
-  const innerRadius = multiClusters.length > 1 ? minSize * 0.35 : 0
-  const outerRadius = minSize * 0.65
+  // 3. Assign physical spaces (Rooms)
   const anchors = new Map<string, { x: number; y: number }>()
 
-  multiClusters.forEach((c, i) => {
-    if (multiClusters.length === 1) {
-      anchors.set(c, { x: cx, y: cy })
-      return
-    }
-    const angle = (i / multiClusters.length) * Math.PI * 2
-    anchors.set(c, {
-      x: cx + Math.cos(angle) * innerRadius,
-      y: cy + Math.sin(angle) * innerRadius,
-    })
-  })
-  singletonClusters.forEach((c, i) => {
-    const angle = (i / Math.max(singletonClusters.length, 1)) * Math.PI * 2
-    anchors.set(c, {
-      x: cx + Math.cos(angle) * outerRadius,
-      y: cy + Math.sin(angle) * outerRadius,
+  // Put multi-node islands into a clean Grid
+  const cols = Math.ceil(Math.sqrt(multiComps.length)) || 1
+  const rows = Math.ceil(multiComps.length / cols) || 1
+  // Shrink the available grid area slightly so they don't touch the walls
+  const gridW = width * 0.8 
+  const gridH = height * 0.8
+  const offsetX = (width - gridW) / 2
+  const offsetY = (height - gridH) / 2
+  const cellW = gridW / cols
+  const cellH = gridH / rows
+
+  multiComps.forEach((comp, i) => {
+    const c = i % cols
+    const r = Math.floor(i / cols)
+    anchors.set(comp, {
+      x: offsetX + (c + 0.5) * cellW,
+      y: offsetY + (r + 0.5) * cellH,
     })
   })
 
+  // Put single disconnected nodes in a neat ring around the absolute edge
+  const ringRadius = Math.max(width, height) * 0.48
+  singleComps.forEach((comp, i) => {
+    const angle = (i / Math.max(singleComps.length, 1)) * Math.PI * 2
+    anchors.set(comp, {
+      x: cx + Math.cos(angle) * ringRadius,
+      y: cy + Math.sin(angle) * ringRadius,
+    })
+  })
+
+  // Initialize nodes near their designated room
   const sim: SimNode[] = nodes.map(n => {
-    const cluster = n.cluster ?? n.id
+    const cluster = nodeToComponent.get(n.id)!
     const a = anchors.get(cluster)!
     const isSingleton = (clusterSize.get(cluster) ?? 1) === 1
-    // Larger spawn radius per cluster
-    const localR = isSingleton ? 100 + rand() * 200 : 50 + rand() * 150
+    const localR = isSingleton ? 10 : 80 + rand() * 100
     const localAngle = rand() * Math.PI * 2
     return {
       id: n.id,
@@ -117,37 +170,19 @@ export function simulateLayout(
   })
 
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
-  const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // Rebalanced physics: high repulsion, gentle springs, weak gravity
-  const repulsionStrength = 40000 
-  const springStrength = 0.05 
-  const centerStrength = 0.0005
-  const clusterStrength = 0.005
+  // Physics tuning: Strong cluster pull, almost zero global center pull
+  const repulsionStrength = 20000 
+  const springStrength = 0.20 
+  const clusterStrength = 0.05    // STRONG pull to their specific grid room
+  const centerStrength = 0.0001   // STOP pulling everything to the middle
   const damping = 0.75 
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
-    const cooling = Math.max(0, 1 - progress) // Linear cooling down to 0
+    const cooling = Math.max(0, 1 - progress)
 
-    const centroids = new Map<string, { x: number; y: number; n: number }>()
-    for (const n of sim) {
-      const c = n.cluster ?? n.id
-      const cur = centroids.get(c)
-      if (cur) {
-        cur.x += n.x
-        cur.y += n.y
-        cur.n++
-      } else {
-        centroids.set(c, { x: n.x, y: n.y, n: 1 })
-      }
-    }
-    for (const v of centroids.values()) {
-      v.x /= v.n
-      v.y /= v.n
-    }
-
-    // 1. Repulsion (Push apart)
+    // 1. Repulsion
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -162,7 +197,9 @@ export function simulateLayout(
         }
         const dist = Math.sqrt(distSq)
         if (dist < MIN_SEPARATION) {
-          const force = (repulsionStrength / (distSq + 100)) * cooling
+          // Push harder if they are from different islands to keep spaces clean
+          const crossClusterMultiplier = a.cluster !== b.cluster ? 2.5 : 1.0
+          const force = ((repulsionStrength * crossClusterMultiplier) / (distSq + 100)) * cooling
           const fx = (dx / dist) * force
           const fy = (dy / dist) * force
           a.vx -= fx
@@ -173,7 +210,7 @@ export function simulateLayout(
       }
     }
 
-    // 2. Collision Resolution (Force-based, no velocity freezing!)
+    // 2. Collision Resolution
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -200,8 +237,8 @@ export function simulateLayout(
       }
     }
 
-    // 3. Springs (Pull together)
-    const edgeLength = 220
+    // 3. Springs
+    const edgeLength = 100
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
@@ -218,13 +255,14 @@ export function simulateLayout(
       b.vy -= fy
     }
 
-    // 4. Gravity & Velocity Integration
+    // 4. Gravity & Integration
     for (const n of sim) {
-      const c = centroids.get(n.cluster ?? n.id)
-      if (c) {
-        n.vx += (c.x - n.x) * clusterStrength * cooling 
-        n.vy += (c.y - n.y) * clusterStrength * cooling
-      }
+      const anchor = anchors.get(n.cluster)!
+      // Pull strongly to their assigned room
+      n.vx += (anchor.x - n.x) * clusterStrength * cooling 
+      n.vy += (anchor.y - n.y) * clusterStrength * cooling
+      
+      // Weak global center pull
       n.vx += (cx - n.x) * centerStrength * cooling
       n.vy += (cy - n.y) * centerStrength * cooling
       
@@ -233,7 +271,8 @@ export function simulateLayout(
       n.x += n.vx
       n.y += n.vy
 
-      const boundPadding = NODE_WIDTH / 2 + 50
+      // Keep them loosely in bounds
+      const boundPadding = NODE_WIDTH / 2
       n.x = Math.max(boundPadding, Math.min(width - boundPadding, n.x))
       n.y = Math.max(boundPadding, Math.min(height - boundPadding, n.y))
     }
@@ -243,7 +282,7 @@ export function simulateLayout(
     id: n.id,
     label: n.label,
     type: n.type,
-    cluster: n.cluster,
+    cluster: n.cluster, // keep original cluster property on return
     x: n.x,
     y: n.y,
   }))
