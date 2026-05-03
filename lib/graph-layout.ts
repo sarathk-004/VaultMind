@@ -50,7 +50,7 @@ export function simulateLayout(
   edges: GraphEdge[],
   width: number,
   height: number,
-  iterations = 700,
+  iterations = 600,
 ): PositionedNode[] {
   if (nodes.length === 0) return []
 
@@ -73,8 +73,9 @@ export function simulateLayout(
   )
 
   const minSize = Math.min(width, height)
-  const innerRadius = multiClusters.length > 1 ? minSize * 0.22 : 0
-  const outerRadius = minSize * 0.46
+  // Spread them out much wider initially so they don't start in a pile
+  const innerRadius = multiClusters.length > 1 ? minSize * 0.35 : 0
+  const outerRadius = minSize * 0.65
   const anchors = new Map<string, { x: number; y: number }>()
 
   multiClusters.forEach((c, i) => {
@@ -100,7 +101,8 @@ export function simulateLayout(
     const cluster = n.cluster ?? n.id
     const a = anchors.get(cluster)!
     const isSingleton = (clusterSize.get(cluster) ?? 1) === 1
-    const localR = isSingleton ? 30 + rand() * 30 : 50 + rand() * 40
+    // Larger spawn radius per cluster
+    const localR = isSingleton ? 100 + rand() * 200 : 50 + rand() * 150
     const localAngle = rand() * Math.PI * 2
     return {
       id: n.id,
@@ -117,20 +119,16 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // TUNED PHYSICS:
-  // Weaken springs & repulsion slightly, and increase damping to bleed kinetic energy.
-  const repulsionStrength = 20000 
-  const springStrength = 0.03 // Lowered significantly so nodes aren't crushed together
-  const centerStrength = 0.001
-  const clusterStrength = 0.015
-  const damping = 0.65 // Lowered from 0.78 to stop chaotic bouncing
-  const sameClusterAttraction = 0.001
+  // Rebalanced physics: high repulsion, gentle springs, weak gravity
+  const repulsionStrength = 40000 
+  const springStrength = 0.05 
+  const centerStrength = 0.0005
+  const clusterStrength = 0.005
+  const damping = 0.75 
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
-    
-    // NEW COOLING: Drops all the way to 0 so the graph 'freezes' nicely at the end
-    const cooling = Math.max(0, 1 - Math.pow(progress, 1.2))
+    const cooling = Math.max(0, 1 - progress) // Linear cooling down to 0
 
     const centroids = new Map<string, { x: number; y: number; n: number }>()
     for (const n of sim) {
@@ -149,6 +147,7 @@ export function simulateLayout(
       v.y /= v.n
     }
 
+    // 1. Repulsion (Push apart)
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -157,15 +156,13 @@ export function simulateLayout(
         let dy = b.y - a.y
         let distSq = dx * dx + dy * dy
         if (distSq < 10) { 
-          dx = (rand() - 0.5) * 2
-          dy = (rand() - 0.5) * 2
+          dx = (rand() - 0.5) * 5
+          dy = (rand() - 0.5) * 5
           distSq = dx * dx + dy * dy
         }
         const dist = Math.sqrt(distSq)
-        const sameCluster = a.cluster === b.cluster
         if (dist < MIN_SEPARATION) {
-          const strength = sameCluster ? repulsionStrength * 0.45 : repulsionStrength
-          const force = (strength / (distSq + 100)) * cooling
+          const force = (repulsionStrength / (distSq + 100)) * cooling
           const fx = (dx / dist) * force
           const fy = (dy / dist) * force
           a.vx -= fx
@@ -173,53 +170,38 @@ export function simulateLayout(
           b.vx += fx
           b.vy += fy
         }
-        if (sameCluster && dist > 80) {
-          const fx = (dx / dist) * dist * sameClusterAttraction * cooling
-          const fy = (dy / dist) * dist * sameClusterAttraction * cooling
-          a.vx += fx
-          a.vy += fy
-          b.vx -= fx
-          b.vy -= fy
-        }
       }
     }
 
-    // NEW COLLISION LOGIC: Positional nudges instead of explosive velocities
+    // 2. Collision Resolution (Force-based, no velocity freezing!)
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
         const b = sim[j]
         const dx = b.x - a.x
         const dy = b.y - a.y
-        const halfW = NODE_WIDTH / 2 + COLLISION_PADDING / 2
-        const halfH = NODE_HEIGHT / 2 + COLLISION_PADDING / 2
-        const overlapX = halfW - Math.abs(dx)
-        const overlapY = halfH - Math.abs(dy)
+        const overlapX = (NODE_WIDTH + COLLISION_PADDING) - Math.abs(dx)
+        const overlapY = (NODE_HEIGHT + COLLISION_PADDING) - Math.abs(dy)
         
         if (overlapX > 0 && overlapY > 0) {
-          // Push stays active even at low cooling to guarantee rigid non-overlap
-          const pushStrength = 0.5 * Math.max(0.1, cooling) 
-          
+          const pushStrength = 4.0 * cooling 
           if (overlapX < overlapY) {
-            const push = (overlapX * pushStrength) / 2
+            const push = overlapX * pushStrength
             const dir = Math.sign(dx) || 1
-            a.x -= push * dir
-            b.x += push * dir
-            a.vx *= 0.5 // damp axis velocity to prevent jitter
-            b.vx *= 0.5
+            a.vx -= push * dir
+            b.vx += push * dir
           } else {
-            const push = (overlapY * pushStrength) / 2
+            const push = overlapY * pushStrength
             const dir = Math.sign(dy) || 1
-            a.y -= push * dir
-            b.y += push * dir
-            a.vy *= 0.5
-            b.vy *= 0.5
+            a.vy -= push * dir
+            b.vy += push * dir
           }
         }
       }
     }
 
-    const edgeLength = 250 // Give dense edges a bit more breathing room
+    // 3. Springs (Pull together)
+    const edgeLength = 220
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
@@ -236,10 +218,11 @@ export function simulateLayout(
       b.vy -= fy
     }
 
+    // 4. Gravity & Velocity Integration
     for (const n of sim) {
       const c = centroids.get(n.cluster ?? n.id)
       if (c) {
-        n.vx += (c.x - n.x) * clusterStrength * cooling // Apply cooling here too!
+        n.vx += (c.x - n.x) * clusterStrength * cooling 
         n.vy += (c.y - n.y) * clusterStrength * cooling
       }
       n.vx += (cx - n.x) * centerStrength * cooling
