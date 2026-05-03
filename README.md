@@ -178,16 +178,6 @@ vaultmind/
 
 ---
 
-## Inspiration
-
-VaultMind is designed to feel like a natural blend of three tools:
-
-- **Obsidian** — for the graph-first thinking model
-- **Linear** — for the clean, minimal dark UI
-- **Notion AI** — for the workspace-native assistant experience
-
----
-
 ## License
 
 MIT
