@@ -96,61 +96,49 @@ export function simulateLayout(
   const cx = width / 2
   const cy = height / 2
 
-  const validNodeIds = new Set(nodes.map(n => n.id))
-  const validEdges = edges.filter(e => validNodeIds.has(e.from) && validNodeIds.has(e.to))
-
-  const nodeToComponent = getConnectedComponents(nodes, validEdges)
-  
   const clusterSize = new Map<string, number>()
-  nodes.forEach(n => {
-    const c = nodeToComponent.get(n.id)!
+  for (const n of nodes) {
+    const c = n.cluster ?? n.id
     clusterSize.set(c, (clusterSize.get(c) ?? 0) + 1)
-  })
-
-  const multiComps = Array.from(clusterSize.keys())
+  }
+  const multiClusters = Array.from(clusterSize.keys())
     .filter(c => (clusterSize.get(c) ?? 0) > 1)
     .sort((a, b) => (clusterSize.get(b) ?? 0) - (clusterSize.get(a) ?? 0))
-  
-  const singleComps = Array.from(clusterSize.keys())
-    .filter(c => (clusterSize.get(c) ?? 0) === 1)
+  const singletonClusters = Array.from(clusterSize.keys()).filter(
+    c => (clusterSize.get(c) ?? 0) === 1,
+  )
 
+  const minSize = Math.min(width, height)
+  // Spread them out much wider initially so they don't start in a pile
+  const innerRadius = multiClusters.length > 1 ? minSize * 0.35 : 0
+  const outerRadius = minSize * 0.65
   const anchors = new Map<string, { x: number; y: number }>()
 
-  const cols = Math.ceil(Math.sqrt(multiComps.length)) || 1
-  const rows = Math.ceil(multiComps.length / cols) || 1
-  const gridW = width * 0.8 
-  const gridH = height * 0.8
-  const offsetX = (width - gridW) / 2
-  const offsetY = (height - gridH) / 2
-  const cellW = gridW / cols
-  const cellH = gridH / rows
-
-  multiComps.forEach((comp, i) => {
-    const c = i % cols
-    const r = Math.floor(i / cols)
-    anchors.set(comp, {
-      x: offsetX + (c + 0.5) * cellW,
-      y: offsetY + (r + 0.5) * cellH,
+  multiClusters.forEach((c, i) => {
+    if (multiClusters.length === 1) {
+      anchors.set(c, { x: cx, y: cy })
+      return
+    }
+    const angle = (i / multiClusters.length) * Math.PI * 2
+    anchors.set(c, {
+      x: cx + Math.cos(angle) * innerRadius,
+      y: cy + Math.sin(angle) * innerRadius,
     })
   })
-
-  const ringRadius = Math.max(width, height) * 0.45
-  singleComps.forEach((comp, i) => {
-    const angle = (i / Math.max(singleComps.length, 1)) * Math.PI * 2
-    anchors.set(comp, {
-      x: cx + Math.cos(angle) * ringRadius,
-      y: cy + Math.sin(angle) * ringRadius,
+  singletonClusters.forEach((c, i) => {
+    const angle = (i / Math.max(singletonClusters.length, 1)) * Math.PI * 2
+    anchors.set(c, {
+      x: cx + Math.cos(angle) * outerRadius,
+      y: cy + Math.sin(angle) * outerRadius,
     })
   })
 
   const sim: SimNode[] = nodes.map(n => {
-    const cluster = nodeToComponent.get(n.id)!
+    const cluster = n.cluster ?? n.id
     const a = anchors.get(cluster)!
-    const compSize = clusterSize.get(cluster) ?? 1
-    const isSingleton = compSize === 1
-    
-    // FIX 1: Dynamically scale the spawn area based on how many nodes are in the island
-    const localR = isSingleton ? 5 : Math.sqrt(compSize) * 40 + rand() * 50
+    const isSingleton = (clusterSize.get(cluster) ?? 1) === 1
+    // Larger spawn radius per cluster
+    const localR = isSingleton ? 100 + rand() * 200 : 50 + rand() * 150
     const localAngle = rand() * Math.PI * 2
     return {
       id: n.id,
@@ -165,19 +153,37 @@ export function simulateLayout(
   })
 
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
+  const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // Tuned for stability
-  const repulsionStrength = 12000 
-  const springStrength = 0.15 
-  const clusterStrength = 0.04    
-  const centerStrength = 0.0002   
-  const damping = 0.8 
+  // Rebalanced physics: high repulsion, gentle springs, weak gravity
+  const repulsionStrength = 40000 
+  const springStrength = 0.05 
+  const centerStrength = 0.0005
+  const clusterStrength = 0.005
+  const damping = 0.75 
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
-    const cooling = Math.max(0, 1 - progress)
+    const cooling = Math.max(0, 1 - progress) // Linear cooling down to 0
 
-    // 1. Repulsion
+    const centroids = new Map<string, { x: number; y: number; n: number }>()
+    for (const n of sim) {
+      const c = n.cluster ?? n.id
+      const cur = centroids.get(c)
+      if (cur) {
+        cur.x += n.x
+        cur.y += n.y
+        cur.n++
+      } else {
+        centroids.set(c, { x: n.x, y: n.y, n: 1 })
+      }
+    }
+    for (const v of centroids.values()) {
+      v.x /= v.n
+      v.y /= v.n
+    }
+
+    // 1. Repulsion (Push apart)
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -185,15 +191,14 @@ export function simulateLayout(
         let dx = b.x - a.x
         let dy = b.y - a.y
         let distSq = dx * dx + dy * dy
-        if (distSq < 4) { 
-          dx = (rand() - 0.5) * 2
-          dy = (rand() - 0.5) * 2
+        if (distSq < 10) { 
+          dx = (rand() - 0.5) * 5
+          dy = (rand() - 0.5) * 5
           distSq = dx * dx + dy * dy
         }
         const dist = Math.sqrt(distSq)
         if (dist < MIN_SEPARATION) {
-          const crossClusterMultiplier = a.cluster !== b.cluster ? 3.0 : 1.0
-          const force = ((repulsionStrength * crossClusterMultiplier) / (distSq + 50)) * cooling
+          const force = (repulsionStrength / (distSq + 100)) * cooling
           const fx = (dx / dist) * force
           const fy = (dy / dist) * force
           a.vx -= fx
@@ -204,7 +209,7 @@ export function simulateLayout(
       }
     }
 
-    // FIX 2: Pure positional nudging for collisions. No velocity changes. Impossible to explode.
+    // 2. Collision Resolution (Force-based, no velocity freezing!)
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -215,24 +220,24 @@ export function simulateLayout(
         const overlapY = (NODE_HEIGHT + COLLISION_PADDING) - Math.abs(dy)
         
         if (overlapX > 0 && overlapY > 0) {
-          const pushStrength = 0.5 * cooling 
+          const pushStrength = 4.0 * cooling 
           if (overlapX < overlapY) {
-            const push = (overlapX * pushStrength) / 2
+            const push = overlapX * pushStrength
             const dir = Math.sign(dx) || 1
-            a.x -= push * dir
-            b.x += push * dir
+            a.vx -= push * dir
+            b.vx += push * dir
           } else {
-            const push = (overlapY * pushStrength) / 2
+            const push = overlapY * pushStrength
             const dir = Math.sign(dy) || 1
-            a.y -= push * dir
-            b.y += push * dir
+            a.vy -= push * dir
+            b.vy += push * dir
           }
         }
       }
     }
 
-    // 3. Springs
-    const edgeLength = 120
+    // 3. Springs (Pull together)
+    const edgeLength = 220
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
@@ -249,15 +254,13 @@ export function simulateLayout(
       b.vy -= fy
     }
 
-    // 4. Gravity & Integration
-    // 4. Gravity & Integration
+    // 4. Gravity & Velocity Integration
     for (const n of sim) {
-      // Add the ! after n.cluster to satisfy strict TypeScript rules
-      const anchor = anchors.get(n.cluster!)! 
-      
-      n.vx += (anchor.x - n.x) * clusterStrength * cooling 
-      n.vy += (anchor.y - n.y) * clusterStrength * cooling
-      
+      const c = centroids.get(n.cluster ?? n.id)
+      if (c) {
+        n.vx += (c.x - n.x) * clusterStrength * cooling 
+        n.vy += (c.y - n.y) * clusterStrength * cooling
+      }
       n.vx += (cx - n.x) * centerStrength * cooling
       n.vy += (cy - n.y) * centerStrength * cooling
       
@@ -266,7 +269,7 @@ export function simulateLayout(
       n.x += n.vx
       n.y += n.vy
 
-      const boundPadding = NODE_WIDTH / 2
+      const boundPadding = NODE_WIDTH / 2 + 50
       n.x = Math.max(boundPadding, Math.min(width - boundPadding, n.x))
       n.y = Math.max(boundPadding, Math.min(height - boundPadding, n.y))
     }
