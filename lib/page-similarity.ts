@@ -185,7 +185,7 @@ export function buildSemanticEdges(
   docs: Map<string, SimilarityDoc>,
   opts: { topK?: number; minScore?: number } = {},
 ): SimilarityEdge[] {
-  const { topK = 5, minScore = 0.06 } = opts
+  const { topK = 5, minScore = 0.18 } = opts
   const ids = Array.from(docs.keys())
   if (ids.length < 2) return []
 
