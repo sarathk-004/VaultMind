@@ -123,6 +123,10 @@ Generate a helpful answer based on this context.`,
  * Deterministic answer synthesizer — used when the LLM is unavailable
  * (e.g. AI Gateway billing not configured). Pulls real Notion content from
  * the retrieved pages so the user always gets a grounded, useful response.
+ *
+ * When the source content contains tables or structured data (markdown tables,
+ * lists, code blocks), it preserves them in the output so the chat UI can
+ * render them properly.
  */
 function synthesizeAnswer(
   message: string,
@@ -135,40 +139,94 @@ function synthesizeAnswer(
   }
 
   const titles = contents.map(c => `**${c.title}**`).join(", ")
-  const firstSnippet = (c: (typeof contents)[number]) => {
+
+  // Extract a meaningful snippet that preserves tables and structured content
+  const getSnippet = (c: (typeof contents)[number], maxLines = 12) => {
+    const lines = c.content.split("\n")
+    const result: string[] = []
+    let inTable = false
+    let inCodeBlock = false
+
+    for (const line of lines) {
+      if (result.length >= maxLines && !inTable && !inCodeBlock) break
+
+      const trimmed = line.trim()
+      
+      // Track code blocks
+      if (trimmed.startsWith("```")) {
+        inCodeBlock = !inCodeBlock
+        result.push(line)
+        continue
+      }
+      if (inCodeBlock) {
+        result.push(line)
+        continue
+      }
+
+      // Track tables
+      if (/^\|.*\|$/.test(trimmed)) {
+        inTable = true
+        result.push(line)
+        continue
+      } else if (inTable && trimmed === "") {
+        inTable = false
+      }
+
+      // Skip empty lines at the start
+      if (result.length === 0 && trimmed === "") continue
+
+      // Skip standalone headers/metadata lines
+      if (trimmed.startsWith("_") && trimmed.endsWith("_")) continue
+
+      result.push(line)
+    }
+
+    return result.join("\n").trim()
+  }
+
+  // Short text preview for list items
+  const shortPreview = (c: (typeof contents)[number]) => {
     const lines = c.content
       .split("\n")
       .map(l => l.trim())
-      .filter(l => l && !l.startsWith("#") && !l.startsWith("_"))
-    return lines.slice(0, 3).join(" ").slice(0, 280)
+      .filter(l => l && !l.startsWith("#") && !l.startsWith("_") && !l.startsWith("|"))
+    return lines.slice(0, 2).join(" ").slice(0, 200)
   }
 
   switch (intent) {
     case "summarize": {
       const top = contents[0]
       const others = contents.slice(1).map(c => `**${c.title}**`).join(" and ")
-      const snippet = firstSnippet(top)
+      const snippet = getSnippet(top, 15)
       return [
-        `Here's a summary based on **${top.title}**:`,
+        `## Summary: ${top.title}`,
         "",
         snippet || "_(This page has no extractable text yet.)_",
         "",
-        others ? `Related pages: ${others}.` : "",
+        others ? `**Related pages:** ${others}` : "",
       ]
         .filter(Boolean)
         .join("\n")
     }
     case "connect": {
-      const lines: string[] = [`I found ${contents.length} related items in your workspace: ${titles}.`, ""]
-      const edges = graph.edges.slice(0, 8)
+      const lines: string[] = [
+        `## Connections for "${message}"`,
+        "",
+        `Found ${contents.length} related items: ${titles}.`,
+        "",
+      ]
+      const edges = graph.edges.slice(0, 10)
       if (edges.length === 0) {
         lines.push("No explicit relationships were found between these pages.")
       } else {
-        lines.push("**Connections:**")
+        lines.push("### Relationships")
+        lines.push("")
+        lines.push("| From | Relation | To |")
+        lines.push("| --- | --- | --- |")
         for (const e of edges) {
           const from = graph.nodes.find(n => n.id === e.from)?.label ?? e.from
           const to = graph.nodes.find(n => n.id === e.to)?.label ?? e.to
-          lines.push(`- **${from}** ${e.relation ?? "links to"} **${to}**`)
+          lines.push(`| **${from}** | ${e.relation ?? "links to"} | **${to}** |`)
         }
       }
       return lines.join("\n")
@@ -177,23 +235,61 @@ function synthesizeAnswer(
       const tasks = contents.filter(c => c.type === "task" || /todo|task/i.test(c.title))
       const notes = contents.filter(c => c.type === "note")
       const refs = contents.filter(c => c.type === "page" || c.type === "database")
-      const lines: string[] = [`Here's your briefing on "${message}":`, ""]
-      if (tasks.length) lines.push(`**Tasks:** ${tasks.map(t => `**${t.title}**`).join(", ")}`)
-      if (notes.length) lines.push(`**Notes:** ${notes.map(n => `**${n.title}**`).join(", ")}`)
-      if (refs.length) lines.push(`**References:** ${refs.map(r => `**${r.title}**`).join(", ")}`)
-      lines.push("")
-      lines.push(firstSnippet(contents[0]))
+      const lines: string[] = [
+        `## Briefing: ${message}`,
+        "",
+      ]
+      if (tasks.length) {
+        lines.push("### Tasks")
+        for (const t of tasks) lines.push(`- [ ] **${t.title}**`)
+        lines.push("")
+      }
+      if (notes.length) {
+        lines.push("### Notes")
+        for (const n of notes) lines.push(`- **${n.title}**`)
+        lines.push("")
+      }
+      if (refs.length) {
+        lines.push("### References")
+        for (const r of refs) lines.push(`- **${r.title}** _(${r.type})_`)
+        lines.push("")
+      }
+      // Include structured content from top result
+      const topSnippet = getSnippet(contents[0], 10)
+      if (topSnippet) {
+        lines.push("### Preview")
+        lines.push("")
+        lines.push(topSnippet)
+      }
       return lines.join("\n")
     }
     case "search":
     default: {
       const lines: string[] = [
-        `Found ${contents.length} relevant ${contents.length === 1 ? "page" : "pages"} for "${message}":`,
+        `## Results for "${message}"`,
+        "",
+        `Found ${contents.length} relevant ${contents.length === 1 ? "page" : "pages"}:`,
         "",
       ]
-      for (const c of contents) {
-        lines.push(`- **${c.title}** _(${c.type})_ — ${firstSnippet(c) || "No preview available."}`)
+      
+      // Show as table if we have multiple results
+      if (contents.length > 1) {
+        lines.push("| Page | Type | Preview |")
+        lines.push("| --- | --- | --- |")
+        for (const c of contents) {
+          const preview = shortPreview(c).slice(0, 80) || "No preview"
+          lines.push(`| **${c.title}** | ${c.type} | ${preview}${preview.length >= 80 ? "..." : ""} |`)
+        }
+        lines.push("")
       }
+      
+      // Show full content of top result with structure preserved
+      const top = contents[0]
+      lines.push(`### ${top.title}`)
+      lines.push("")
+      const topSnippet = getSnippet(top, 20)
+      lines.push(topSnippet || "_(No content available)_")
+      
       return lines.join("\n")
     }
   }

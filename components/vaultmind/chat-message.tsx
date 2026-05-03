@@ -15,23 +15,272 @@ interface ChatMessageProps {
 }
 
 /**
- * Minimal markdown renderer — supports **bold**, *italic*, `code`, and newlines.
- * Avoids pulling a markdown library to keep the bundle minimal.
+ * Block-aware markdown renderer for chat answers. Renders tables, lists,
+ * code blocks, headings, and blockquotes as proper structured HTML so the
+ * AI response looks clean and readable.
  */
 function renderMarkdown(text: string): React.ReactNode {
   const lines = text.split("\n")
-  return lines.map((line, i) => (
-    <span key={i}>
-      {parseInline(line)}
-      {i < lines.length - 1 && <br />}
-    </span>
-  ))
+  const blocks: React.ReactNode[] = []
+  let i = 0
+  let key = 0
+
+  const isTableSeparator = (l: string) =>
+    /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(l)
+  const isTableRow = (l: string) => /^\s*\|.*\|\s*$/.test(l)
+  const splitRow = (l: string) =>
+    l
+      .trim()
+      .replace(/^\||\|$/g, "")
+      .split("|")
+      .map(c => c.trim())
+
+  while (i < lines.length) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    // Blank line
+    if (trimmed === "") {
+      i++
+      continue
+    }
+
+    // Horizontal rule
+    if (trimmed === "---") {
+      blocks.push(<hr key={key++} className="my-3 border-border/60" />)
+      i++
+      continue
+    }
+
+    // Headings
+    if (trimmed.startsWith("#### ")) {
+      blocks.push(
+        <h5
+          key={key++}
+          className="text-[13px] font-semibold mt-3 mb-1 text-foreground/90"
+        >
+          {parseInline(trimmed.slice(5))}
+        </h5>,
+      )
+      i++
+      continue
+    }
+    if (trimmed.startsWith("### ")) {
+      blocks.push(
+        <h4
+          key={key++}
+          className="text-sm font-semibold mt-3 mb-1 text-foreground/90"
+        >
+          {parseInline(trimmed.slice(4))}
+        </h4>,
+      )
+      i++
+      continue
+    }
+    if (trimmed.startsWith("## ")) {
+      blocks.push(
+        <h3
+          key={key++}
+          className="text-[15px] font-semibold mt-4 mb-1.5 first:mt-0"
+        >
+          {parseInline(trimmed.slice(3))}
+        </h3>,
+      )
+      i++
+      continue
+    }
+
+    // Code block
+    if (trimmed.startsWith("```")) {
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        codeLines.push(lines[i])
+        i++
+      }
+      i++
+      blocks.push(
+        <pre
+          key={key++}
+          className="my-2 px-3 py-2 rounded-md bg-muted/50 border border-border overflow-x-auto text-[12px] font-mono leading-relaxed"
+        >
+          <code>{codeLines.join("\n")}</code>
+        </pre>,
+      )
+      continue
+    }
+
+    // Table
+    if (isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const header = splitRow(trimmed)
+      i += 2
+      const rows: string[][] = []
+      while (i < lines.length && isTableRow(lines[i].trim())) {
+        rows.push(splitRow(lines[i].trim()))
+        i++
+      }
+      blocks.push(
+        <div
+          key={key++}
+          className="my-2 overflow-x-auto rounded-md border border-border"
+        >
+          <table className="w-full text-[12px] border-collapse">
+            <thead className="bg-muted/40">
+              <tr>
+                {header.map((h, hi) => (
+                  <th
+                    key={hi}
+                    className="text-left font-medium text-foreground/90 px-2.5 py-1.5 border-b border-border whitespace-nowrap"
+                  >
+                    {parseInline(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr
+                  key={ri}
+                  className={ri % 2 === 0 ? "bg-transparent" : "bg-muted/20"}
+                >
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className="px-2.5 py-1.5 text-foreground/85 align-top border-t border-border/50"
+                    >
+                      {parseInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      )
+      continue
+    }
+
+    // Blockquote
+    if (trimmed.startsWith("> ")) {
+      const quoteLines: string[] = []
+      while (i < lines.length && lines[i].trim().startsWith("> ")) {
+        quoteLines.push(lines[i].trim().slice(2))
+        i++
+      }
+      blocks.push(
+        <blockquote
+          key={key++}
+          className="my-2 border-l-2 border-primary/40 pl-2.5 text-sm leading-relaxed text-foreground/70 italic"
+        >
+          {quoteLines.map((q, qi) => (
+            <span key={qi}>
+              {parseInline(q)}
+              {qi < quoteLines.length - 1 && <br />}
+            </span>
+          ))}
+        </blockquote>,
+      )
+      continue
+    }
+
+    // Unordered list / todo
+    if (/^[-•]\s/.test(trimmed) || /^- \[[ x]\]\s/.test(trimmed)) {
+      const items: { content: string; checked?: boolean }[] = []
+      while (i < lines.length) {
+        const t = lines[i].trim()
+        const todoMatch = t.match(/^- \[([ x])\]\s+(.*)$/)
+        if (todoMatch) {
+          items.push({ checked: todoMatch[1] === "x", content: todoMatch[2] })
+          i++
+        } else if (/^[-•]\s/.test(t)) {
+          items.push({ content: t.replace(/^[-•]\s+/, "") })
+          i++
+        } else {
+          break
+        }
+      }
+      blocks.push(
+        <ul key={key++} className="my-2 space-y-0.5 pl-1">
+          {items.map((it, ii) => (
+            <li
+              key={ii}
+              className="flex gap-2 text-sm leading-relaxed text-foreground/85"
+            >
+              {typeof it.checked === "boolean" ? (
+                <span
+                  className={`mt-1 inline-block h-3 w-3 shrink-0 rounded-sm border ${
+                    it.checked
+                      ? "bg-primary border-primary"
+                      : "border-muted-foreground/40 bg-transparent"
+                  }`}
+                  aria-hidden
+                />
+              ) : (
+                <span
+                  className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60"
+                  aria-hidden
+                />
+              )}
+              <span
+                className={it.checked ? "line-through text-muted-foreground" : ""}
+              >
+                {parseInline(it.content)}
+              </span>
+            </li>
+          ))}
+        </ul>,
+      )
+      continue
+    }
+
+    // Ordered list
+    if (/^\d+\.\s/.test(trimmed)) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\.\s/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+\.\s+/, ""))
+        i++
+      }
+      blocks.push(
+        <ol key={key++} className="my-2 space-y-0.5 pl-5 list-decimal">
+          {items.map((it, ii) => (
+            <li key={ii} className="text-sm leading-relaxed text-foreground/85">
+              {parseInline(it)}
+            </li>
+          ))}
+        </ol>,
+      )
+      continue
+    }
+
+    // Default paragraph
+    const paraLines: string[] = [trimmed]
+    i++
+    while (i < lines.length) {
+      const t = lines[i].trim()
+      if (t === "") break
+      if (/^(#{2,4}\s|>\s|[-•]\s|\d+\.\s|```|---)/.test(t)) break
+      if (isTableRow(t)) break
+      paraLines.push(t)
+      i++
+    }
+    blocks.push(
+      <p key={key++} className="text-sm leading-relaxed text-foreground/90 my-1.5">
+        {paraLines.map((pl, pi) => (
+          <span key={pi}>
+            {parseInline(pl)}
+            {pi < paraLines.length - 1 && " "}
+          </span>
+        ))}
+      </p>,
+    )
+  }
+
+  return blocks
 }
 
 function parseInline(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = []
-  // Match **bold**, *italic*, or `code`
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|_[^_]+_)/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   let key = 0
@@ -55,6 +304,12 @@ function parseInline(text: string): React.ReactNode[] {
         >
           {token.slice(1, -1)}
         </code>,
+      )
+    } else if (token.startsWith("_")) {
+      parts.push(
+        <em key={key++} className="italic text-foreground/75">
+          {token.slice(1, -1)}
+        </em>,
       )
     } else {
       parts.push(
