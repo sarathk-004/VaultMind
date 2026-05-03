@@ -50,7 +50,7 @@ export function simulateLayout(
   edges: GraphEdge[],
   width: number,
   height: number,
-  iterations = 500,
+  iterations = 700,
 ): PositionedNode[] {
   if (nodes.length === 0) return []
 
@@ -206,7 +206,7 @@ export function simulateLayout(
         const overlapX = halfW - Math.abs(dx)
         const overlapY = halfH - Math.abs(dy)
         if (overlapX > 0 && overlapY > 0) {
-          const pushStrength = 3.5 * cooling
+          const pushStrength = 4.5
           if (overlapX < overlapY) {
             const push = overlapX * pushStrength
             const dir = Math.sign(dx) || 1
