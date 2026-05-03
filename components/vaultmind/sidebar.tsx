@@ -11,7 +11,8 @@ interface SidebarProps {
   onSelectChat: (id: string) => void
   onNewChat: () => void
   onOpenSettings: () => void
-  onOpenIntegrations: () => void
+  workspaceLabel?: string
+  workspaceConnected?: boolean
 }
 
 export function Sidebar({
@@ -20,7 +21,8 @@ export function Sidebar({
   onSelectChat,
   onNewChat,
   onOpenSettings,
-  onOpenIntegrations,
+  workspaceLabel = "Notion Workspace",
+  workspaceConnected = true,
 }: SidebarProps) {
   return (
     <aside className="flex flex-col h-full w-full md:w-[260px] md:shrink-0 md:border-r border-border bg-sidebar">
@@ -42,13 +44,18 @@ export function Sidebar({
         </div>
         <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border">
           <span
-            className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
+            className={cn(
+              "h-2 w-2 rounded-full",
+              workspaceConnected
+                ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
+                : "bg-muted-foreground/40",
+            )}
             aria-hidden
           />
           <div className="flex flex-col leading-tight min-w-0">
-            <span className="text-xs font-medium truncate">Acme Notion</span>
+            <span className="text-xs font-medium truncate">{workspaceLabel}</span>
             <span className="text-[10px] text-muted-foreground">
-              {history.length} chat{history.length === 1 ? "" : "s"} · MCP linked
+              {workspaceConnected ? "MCP linked · live" : "Disconnected"}
             </span>
           </div>
         </div>
@@ -116,11 +123,11 @@ export function Sidebar({
         <Button
           variant="outline"
           size="sm"
-          onClick={onOpenIntegrations}
+          onClick={onNewChat}
           className="flex-1 h-8 text-xs justify-start gap-2 bg-transparent"
         >
           <Plus className="h-3.5 w-3.5" />
-          Add Integration
+          New chat
         </Button>
         <Button
           variant="ghost"

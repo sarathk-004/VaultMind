@@ -5,10 +5,8 @@ import { Sidebar } from "@/components/vaultmind/sidebar"
 import { ChatPanel } from "@/components/vaultmind/chat-panel"
 import { KnowledgeGraphPanel } from "@/components/vaultmind/knowledge-graph"
 import { CitationDrawer } from "@/components/vaultmind/citation-drawer"
-import { IntegrationsDialog } from "@/components/vaultmind/integrations-dialog"
 import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
-import { NOTE_CONTENT } from "@/lib/workspace-data"
 import type {
   ChatHistoryItem,
   ChatMessage,
@@ -18,13 +16,12 @@ import type {
 } from "@/lib/vaultmind-types"
 
 const LOADING_STATUSES = [
-  "Querying workspace…",
-  "Fetching from MCP…",
-  "Analyzing connections…",
+  "Querying workspace via MCP…",
+  "Fetching relevant pages from Notion…",
+  "Sending context to model…",
   "Building knowledge graph…",
 ]
 
-// Initial mock chats users can browse — they're real ChatHistoryItems with messages.
 const SEED_HISTORY: ChatHistoryItem[] = [
   {
     id: "seed-roadmap",
@@ -53,12 +50,49 @@ function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`
 }
 
+interface WorkspaceState {
+  graph: KnowledgeGraph | null
+  loading: boolean
+  connected: boolean
+}
+
 export default function VaultMindPage() {
-  // ── Conversations ──────────────────────────────────────────────────────────
+  // ── Workspace snapshot (fetched on mount via /api/vaultmind/workspace) ────
+  const [workspace, setWorkspace] = useState<WorkspaceState>({
+    graph: null,
+    loading: true,
+    connected: false,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/vaultmind/workspace")
+      .then(async res => {
+        if (!res.ok) throw new Error(`Status ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        if (cancelled) return
+        setWorkspace({
+          graph: data.graph,
+          loading: false,
+          connected: Boolean(data.connected),
+        })
+      })
+      .catch(err => {
+        if (cancelled) return
+        console.error("[v0] Failed to load workspace:", err)
+        setWorkspace({ graph: null, loading: false, connected: false })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // ── Conversations ────────────────────────────────────────────────────────
   const [history, setHistory] = useState<ChatHistoryItem[]>(SEED_HISTORY)
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
 
-  // The current draft chat — exists before any message is sent.
   const [draftMessages, setDraftMessages] = useState<ChatMessage[]>([])
   const [draftTitle, setDraftTitle] = useState("New conversation")
 
@@ -70,20 +104,15 @@ export default function VaultMindPage() {
   const messages: ChatMessage[] = activeChat ? activeChat.messages : draftMessages
   const chatTitle = activeChat ? activeChat.title : draftTitle
 
-  // The graph displayed = graph from the most recent assistant message
-  const graph: KnowledgeGraph | null = useMemo(() => {
+  // The focused graph = graph from the most recent assistant message
+  const focusedGraph: KnowledgeGraph | null = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "assistant" && messages[i].graph) return messages[i].graph!
     }
     return null
   }, [messages])
 
-  const focusedNodeIds: Set<string> = useMemo(() => {
-    if (!graph) return new Set()
-    return new Set(graph.nodes.map(n => n.id))
-  }, [graph])
-
-  // ── UI state ───────────────────────────────────────────────────────────────
+  // ── UI state ─────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false)
   const [loadingStatus, setLoadingStatus] = useState(LOADING_STATUSES[0])
   const [inputValue, setInputValue] = useState("")
@@ -92,16 +121,15 @@ export default function VaultMindPage() {
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null)
   const [citationNodeId, setCitationNodeId] = useState<string | null>(null)
 
-  const [integrationsOpen, setIntegrationsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
 
-  // Settings (currently informational — kept here so they're easy to wire up later)
+  // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
   const [graphMotion, setGraphMotion] = useState(true)
 
-  // Track citation chip DOM nodes for scroll-into-view from graph clicks.
+  // Track citation chip DOM nodes for scroll-into-view from graph clicks
   const citationRefs = useRef<Map<string, Map<string, HTMLElement>>>(new Map())
 
   const registerCitationRef = useCallback(
@@ -117,7 +145,7 @@ export default function VaultMindPage() {
     [],
   )
 
-  // Cycle loading status text while loading
+  // Cycle loading status
   useEffect(() => {
     if (!loading) return
     let i = 0
@@ -129,7 +157,7 @@ export default function VaultMindPage() {
     return () => clearInterval(interval)
   }, [loading])
 
-  // ── Chat persistence helpers ───────────────────────────────────────────────
+  // ── Chat helpers ─────────────────────────────────────────────────────────
   const renameCurrentChat = useCallback(
     (title: string) => {
       const next = title.trim() || "Untitled chat"
@@ -166,7 +194,7 @@ export default function VaultMindPage() {
     [activeChatId, draftMessages, draftTitle],
   )
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
+  // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     const trimmed = inputValue.trim()
     if (!trimmed || loading) return
@@ -179,18 +207,12 @@ export default function VaultMindPage() {
       createdAt: Date.now(),
     }
 
-    // Promote draft → real chat on first message if needed
     const chatId = ensureActiveChatFromDraft(trimmed)
 
-    // Append the user message to the (now-active) chat
     setHistory(prev =>
       prev.map(chat =>
         chat.id === chatId
-          ? {
-              ...chat,
-              messages: [...chat.messages, userMsg],
-              preview: trimmed,
-            }
+          ? { ...chat, messages: [...chat.messages, userMsg], preview: trimmed }
           : chat,
       ),
     )
@@ -218,9 +240,7 @@ export default function VaultMindPage() {
 
       setHistory(prev =>
         prev.map(chat =>
-          chat.id === chatId
-            ? { ...chat, messages: [...chat.messages, assistantMsg] }
-            : chat,
+          chat.id === chatId ? { ...chat, messages: [...chat.messages, assistantMsg] } : chat,
         ),
       )
     } catch (err) {
@@ -229,7 +249,7 @@ export default function VaultMindPage() {
         id: makeId("a"),
         role: "assistant",
         content:
-          "I couldn't reach your workspace just now. Please try again — the MCP connection may be reinitializing.",
+          "I couldn't reach your workspace just now. Make sure your `NOTION_API_KEY` is set and the integration has been shared with the pages you want to query.",
         createdAt: Date.now(),
       }
       setHistory(prev =>
@@ -242,13 +262,13 @@ export default function VaultMindPage() {
     }
   }, [inputValue, intent, loading, ensureActiveChatFromDraft])
 
-  // ── Clear / new chat ───────────────────────────────────────────────────────
+  // ── Clear / new chat / select chat ───────────────────────────────────────
   const handleClear = useCallback(() => {
     if (activeChatId) {
       setHistory(prev =>
         prev.map(chat =>
           chat.id === activeChatId
-            ? { ...chat, messages: [], preview: "Cleared", title: chat.title }
+            ? { ...chat, messages: [], preview: "Cleared" }
             : chat,
         ),
       )
@@ -278,7 +298,7 @@ export default function VaultMindPage() {
     setMobileSidebarOpen(false)
   }, [])
 
-  // ── Cross-panel interactions ───────────────────────────────────────────────
+  // ── Cross-panel interactions ─────────────────────────────────────────────
   const handleCitationClick = useCallback((nodeId: string) => {
     setHighlightedNodeId(prev => (prev === nodeId ? null : nodeId))
   }, [])
@@ -292,7 +312,6 @@ export default function VaultMindPage() {
     setCitationNodeId(nodeId)
     setMobileGraphOpen(false)
 
-    // Find the most recent citation chip with this nodeId and scroll to it
     let targetEl: HTMLElement | null = null
     citationRefs.current.forEach(inner => {
       const el = inner.get(nodeId)
@@ -308,10 +327,10 @@ export default function VaultMindPage() {
     }
   }, [])
 
-  // The note for the currently open citation, if any
-  const activeNote = citationNodeId ? NOTE_CONTENT[citationNodeId] ?? null : null
+  // Suppress unused-var lint until we wire animation toggling through.
+  void graphMotion
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <main className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
       {/* Desktop sidebar */}
@@ -322,11 +341,12 @@ export default function VaultMindPage() {
           onSelectChat={handleSelectChat}
           onNewChat={handleNewChat}
           onOpenSettings={() => setSettingsOpen(true)}
-          onOpenIntegrations={() => setIntegrationsOpen(true)}
+          workspaceConnected={workspace.connected}
+          workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
         />
       </div>
 
-      {/* Mobile sidebar (sheet) */}
+      {/* Mobile sidebar */}
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
         <SheetContent
           side="left"
@@ -341,10 +361,8 @@ export default function VaultMindPage() {
               setSettingsOpen(true)
               setMobileSidebarOpen(false)
             }}
-            onOpenIntegrations={() => {
-              setIntegrationsOpen(true)
-              setMobileSidebarOpen(false)
-            }}
+            workspaceConnected={workspace.connected}
+            workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
           />
         </SheetContent>
       </Sheet>
@@ -373,31 +391,36 @@ export default function VaultMindPage() {
       {/* Desktop graph */}
       <div className="hidden lg:flex h-full">
         <KnowledgeGraphPanel
-          graph={graph}
+          workspaceGraph={workspace.graph}
+          focusedGraph={focusedGraph}
           highlightedNodeId={highlightedNodeId}
-          focusedNodeIds={focusedNodeIds}
+          showFullGraph={showFullGraph}
           onNodeClick={handleNodeClick}
+          workspaceLoading={workspace.loading}
         />
       </div>
 
-      {/* Mobile graph (sheet) */}
+      {/* Mobile graph */}
       <Sheet open={mobileGraphOpen} onOpenChange={setMobileGraphOpen}>
         <SheetContent
           side="right"
           className="w-full sm:max-w-md p-0 bg-sidebar border-border lg:hidden"
         >
           <KnowledgeGraphPanel
-            graph={graph}
+            workspaceGraph={workspace.graph}
+            focusedGraph={focusedGraph}
             highlightedNodeId={highlightedNodeId}
-            focusedNodeIds={focusedNodeIds}
+            showFullGraph={showFullGraph}
             onNodeClick={handleNodeClick}
+            workspaceLoading={workspace.loading}
           />
         </SheetContent>
       </Sheet>
 
       {/* Citation drawer */}
       <CitationDrawer
-        note={activeNote}
+        nodeId={citationNodeId}
+        workspaceGraph={workspace.graph}
         open={citationNodeId !== null}
         onOpenChange={open => {
           if (!open) setCitationNodeId(null)
@@ -408,9 +431,6 @@ export default function VaultMindPage() {
         }}
       />
 
-      {/* Integrations dialog */}
-      <IntegrationsDialog open={integrationsOpen} onOpenChange={setIntegrationsOpen} />
-
       {/* Settings dialog */}
       <SettingsDialog
         open={settingsOpen}
@@ -419,6 +439,8 @@ export default function VaultMindPage() {
         onShowFullGraphChange={setShowFullGraph}
         graphMotion={graphMotion}
         onGraphMotionChange={setGraphMotion}
+        workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+        workspaceConnected={workspace.connected}
       />
     </main>
   )

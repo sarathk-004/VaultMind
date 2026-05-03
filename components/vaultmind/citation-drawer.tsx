@@ -1,6 +1,7 @@
 "use client"
 
-import { ExternalLink, FileText } from "lucide-react"
+import { ExternalLink, FileText, Loader2 } from "lucide-react"
+import { useEffect, useState } from "react"
 import {
   Sheet,
   SheetContent,
@@ -10,11 +11,13 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { getNodeColor } from "@/lib/graph-layout"
-import type { NoteContent } from "@/lib/vaultmind-types"
-import { WORKSPACE } from "@/lib/workspace-data"
+import type { KnowledgeGraph, NoteContent } from "@/lib/vaultmind-types"
 
 interface CitationDrawerProps {
-  note: NoteContent | null
+  /** Currently open node id, or null when closed */
+  nodeId: string | null
+  /** Workspace graph for resolving related node labels/types */
+  workspaceGraph: KnowledgeGraph | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onJumpToNode: (nodeId: string) => void
@@ -105,13 +108,57 @@ function parseInline(text: string): React.ReactNode[] {
   return parts
 }
 
-export function CitationDrawer({ note, open, onOpenChange, onJumpToNode }: CitationDrawerProps) {
-  if (!note) return null
+export function CitationDrawer({
+  nodeId,
+  workspaceGraph,
+  open,
+  onOpenChange,
+  onJumpToNode,
+}: CitationDrawerProps) {
+  const [note, setNote] = useState<NoteContent | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const colors = getNodeColor(note.type)
-  const related = note.relatedNodes
-    .map(id => WORKSPACE[id])
-    .filter(Boolean)
+  useEffect(() => {
+    if (!open || !nodeId) {
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    setNote(null)
+    fetch(`/api/vaultmind/page/${encodeURIComponent(nodeId)}`)
+      .then(async res => {
+        if (!res.ok) throw new Error(`Status ${res.status}`)
+        return res.json()
+      })
+      .then((data: NoteContent) => {
+        if (!cancelled) setNote(data)
+      })
+      .catch(err => {
+        if (!cancelled) {
+          console.error("[v0] Failed to fetch citation:", err)
+          setError("Couldn't load this page. Make sure it's shared with the integration.")
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [nodeId, open])
+
+  // Resolve related node labels from the workspace graph
+  const nodeLookup = new Map<string, { label: string; type?: string }>()
+  for (const n of workspaceGraph?.nodes ?? []) {
+    nodeLookup.set(n.id, { label: n.label, type: n.type })
+  }
+
+  const colors = note ? getNodeColor(note.type) : getNodeColor("page")
+  const related = (note?.relatedNodes ?? [])
+    .map(id => ({ id, ...(nodeLookup.get(id) ?? { label: id }) }))
+    .filter(r => r.label !== r.id || workspaceGraph === null)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -134,14 +181,16 @@ export function CitationDrawer({ note, open, onOpenChange, onJumpToNode }: Citat
                 style={{ backgroundColor: colors.stroke }}
                 aria-hidden
               />
-              {note.type}
+              {note?.type ?? "page"}
             </span>
-            <span className="text-[10px] text-muted-foreground font-mono truncate">
-              notion://{note.id}
-            </span>
+            {nodeId && (
+              <span className="text-[10px] text-muted-foreground font-mono truncate">
+                notion://{nodeId.slice(0, 16)}
+              </span>
+            )}
           </div>
           <SheetTitle className="text-lg font-semibold tracking-tight text-left">
-            {note.title}
+            {note?.title ?? (loading ? "Loading…" : "Citation")}
           </SheetTitle>
           <SheetDescription className="text-xs text-muted-foreground text-left">
             Source content fetched from your connected Notion workspace.
@@ -149,43 +198,59 @@ export function CitationDrawer({ note, open, onOpenChange, onJumpToNode }: Citat
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
-          <article className="prose prose-invert max-w-none">
-            {renderMarkdown(note.content)}
-          </article>
-
-          {related.length > 0 && (
-            <div className="mt-8 pt-5 border-t border-border">
-              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-3">
-                Linked items
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {related.map(rel => {
-                  const c = getNodeColor(rel.type)
-                  return (
-                    <button
-                      key={rel.id}
-                      onClick={() => {
-                        onJumpToNode(rel.id)
-                        onOpenChange(false)
-                      }}
-                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium hover:scale-[1.02] transition-transform"
-                      style={{
-                        borderColor: c.stroke,
-                        backgroundColor: c.fill,
-                        color: c.text,
-                      }}
-                    >
-                      <span
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: c.stroke }}
-                        aria-hidden
-                      />
-                      <span className="truncate max-w-[160px]">{rel.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
+          {loading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Loading from Notion…
             </div>
+          )}
+
+          {error && (
+            <div className="text-xs text-muted-foreground bg-card border border-border rounded p-3">
+              {error}
+            </div>
+          )}
+
+          {note && !loading && (
+            <>
+              <article className="prose prose-invert max-w-none">
+                {renderMarkdown(note.content)}
+              </article>
+
+              {related.length > 0 && (
+                <div className="mt-8 pt-5 border-t border-border">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-3">
+                    Linked items
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {related.map(rel => {
+                      const c = getNodeColor(rel.type)
+                      return (
+                        <button
+                          key={rel.id}
+                          onClick={() => {
+                            onJumpToNode(rel.id)
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium hover:scale-[1.02] transition-transform"
+                          style={{
+                            borderColor: c.stroke,
+                            backgroundColor: c.fill,
+                            color: c.text,
+                          }}
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: c.stroke }}
+                            aria-hidden
+                          />
+                          <span className="truncate max-w-[160px]">{rel.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -201,7 +266,7 @@ export function CitationDrawer({ note, open, onOpenChange, onJumpToNode }: Citat
             onClick={() => onOpenChange(false)}
           >
             <ExternalLink className="h-3 w-3" />
-            Open in Notion
+            Close
           </Button>
         </div>
       </SheetContent>

@@ -15,9 +15,9 @@ interface SimNode {
   vy: number
 }
 
-/**
- * Deterministic pseudo-random based on string hash, so layout is stable per query.
- */
+const NODE_WIDTH = 132
+const NODE_HEIGHT = 36
+
 function seededRandom(seed: string) {
   let h = 0
   for (let i = 0; i < seed.length; i++) {
@@ -31,19 +31,18 @@ function seededRandom(seed: string) {
 }
 
 /**
- * Simple force-directed simulation with:
- * - Repulsion between all nodes
+ * Force-directed layout with:
+ * - Type-based clustering (nodes of same type start nearby)
+ * - Strong repulsion + collision detection (no overlaps)
  * - Spring attraction along edges
- * - Mild centering force
- *
- * Returns final settled positions (run synchronously, fixed iterations).
+ * - Centering force
  */
 export function simulateLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
   width: number,
   height: number,
-  iterations = 220,
+  iterations = 300,
 ): PositionedNode[] {
   if (nodes.length === 0) return []
 
@@ -52,34 +51,55 @@ export function simulateLayout(
 
   const cx = width / 2
   const cy = height / 2
-  const ringRadius = Math.min(width, height) * 0.32
 
-  // 1. Initial circular layout with slight random offset
-  const sim: SimNode[] = nodes.map((n, i) => {
-    const angle = (i / nodes.length) * Math.PI * 2
-    return {
+  // 1. Type-clustered initial layout
+  const typeGroups: Record<string, SimNode[]> = {}
+  for (const n of nodes) {
+    const t = n.type || "page"
+    if (!typeGroups[t]) typeGroups[t] = []
+    typeGroups[t].push({
       id: n.id,
       label: n.label,
       type: n.type,
-      x: cx + Math.cos(angle) * ringRadius + (rand() - 0.5) * 30,
-      y: cy + Math.sin(angle) * ringRadius + (rand() - 0.5) * 30,
+      x: 0,
+      y: 0,
       vx: 0,
       vy: 0,
+    })
+  }
+
+  const typeKeys = Object.keys(typeGroups)
+  const typeCount = typeKeys.length
+  const sim: SimNode[] = []
+
+  for (let i = 0; i < typeKeys.length; i++) {
+    const group = typeGroups[typeKeys[i]]
+    const angle = (i / typeCount) * Math.PI * 2
+    const clusterRadius = Math.min(width, height) * 0.15
+    const clusterX = cx + Math.cos(angle) * clusterRadius
+    const clusterY = cy + Math.sin(angle) * clusterRadius
+
+    for (let j = 0; j < group.length; j++) {
+      const subAngle = (j / group.length) * Math.PI * 2
+      group[j].x = clusterX + Math.cos(subAngle) * 50 + (rand() - 0.5) * 30
+      group[j].y = clusterY + Math.sin(subAngle) * 50 + (rand() - 0.5) * 30
+      sim.push(group[j])
     }
-  })
+  }
 
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  const idealEdgeLength = Math.min(width, height) * 0.22
-  const repulsionStrength = 9000
-  const springStrength = 0.04
-  const centerStrength = 0.012
-  const damping = 0.82
+  const idealEdgeLength = Math.min(width, height) * 0.28
+  const repulsionStrength = 15000
+  const springStrength = 0.05
+  const centerStrength = 0.01
+  const damping = 0.85
+  const collisionPadding = 24 // min space between node edges
 
   // 2. Run simulation
   for (let iter = 0; iter < iterations; iter++) {
-    // Repulsion: every pair pushes each other apart
+    // Global repulsion
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -100,6 +120,32 @@ export function simulateLayout(
         a.vy -= fy
         b.vx += fx
         b.vy += fy
+      }
+    }
+
+    // Collision detection (rectangle overlap → strong push)
+    for (let i = 0; i < sim.length; i++) {
+      for (let j = i + 1; j < sim.length; j++) {
+        const a = sim[i]
+        const b = sim[j]
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const overlapX = NODE_WIDTH / 2 + collisionPadding - Math.abs(dx)
+        const overlapY = NODE_HEIGHT / 2 + collisionPadding - Math.abs(dy)
+
+        if (overlapX > 0 && overlapY > 0) {
+          // Overlapping rectangles → push apart along shortest axis
+          const pushStrength = 2.5
+          if (overlapX < overlapY) {
+            const push = (overlapX / 2) * pushStrength
+            a.vx -= Math.sign(dx) * push
+            b.vx += Math.sign(dx) * push
+          } else {
+            const push = (overlapY / 2) * pushStrength
+            a.vy -= Math.sign(dy) * push
+            b.vy += Math.sign(dy) * push
+          }
+        }
       }
     }
 
@@ -129,9 +175,9 @@ export function simulateLayout(
       n.x += n.vx
       n.y += n.vy
 
-      // Keep nodes inside the canvas with padding
-      const padX = 80
-      const padY = 28
+      // Keep nodes inside canvas with generous padding
+      const padX = NODE_WIDTH / 2 + 40
+      const padY = NODE_HEIGHT / 2 + 40
       n.x = Math.max(padX, Math.min(width - padX, n.x))
       n.y = Math.max(padY, Math.min(height - padY, n.y))
     }
@@ -146,9 +192,6 @@ export function simulateLayout(
   }))
 }
 
-/**
- * Build an adjacency map for fast neighbor lookup (for hover highlighting).
- */
 export function buildAdjacency(edges: GraphEdge[]): Map<string, Set<string>> {
   const adj = new Map<string, Set<string>>()
   for (const e of edges) {

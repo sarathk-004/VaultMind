@@ -19,6 +19,8 @@ interface SettingsDialogProps {
   onShowFullGraphChange: (v: boolean) => void
   graphMotion: boolean
   onGraphMotionChange: (v: boolean) => void
+  workspaceLabel?: string
+  workspaceConnected?: boolean
 }
 
 export function SettingsDialog({
@@ -28,14 +30,14 @@ export function SettingsDialog({
   onShowFullGraphChange,
   graphMotion,
   onGraphMotionChange,
+  workspaceLabel,
+  workspaceConnected,
 }: SettingsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md bg-background border-border">
         <DialogHeader>
-          <DialogTitle className="text-base font-semibold tracking-tight">
-            Settings
-          </DialogTitle>
+          <DialogTitle className="text-base font-semibold tracking-tight">Settings</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             Configure how VaultMind queries your workspace and renders the graph.
           </DialogDescription>
@@ -43,8 +45,8 @@ export function SettingsDialog({
 
         <div className="grid gap-4 py-2">
           <Row
-            label="Show full workspace graph at rest"
-            hint="Render every page, database, task and note when no query is active."
+            label="Show full workspace graph"
+            hint="Always render every page in the graph. When off, only the focused subgraph for the current query is shown."
           >
             <Switch
               checked={showFullGraph}
@@ -64,20 +66,23 @@ export function SettingsDialog({
             />
           </Row>
 
-          <Row
-            label="Model"
-            hint="The reasoning model VaultMind uses for answers."
-          >
+          <Row label="Model" hint="The reasoning model VaultMind uses for answers.">
             <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20">
-              GPT-4o
+              GPT-4o mini
             </span>
           </Row>
 
-          <Row
-            label="Workspace"
-            hint="Connected via MCP."
-          >
-            <span className="text-xs text-foreground/80">Acme Notion</span>
+          <Row label="Workspace" hint="Connected via MCP / Notion API.">
+            <span className="text-xs text-foreground/80 flex items-center gap-1.5">
+              <span
+                className={
+                  "h-1.5 w-1.5 rounded-full " +
+                  (workspaceConnected ? "bg-green-500" : "bg-muted-foreground/40")
+                }
+                aria-hidden
+              />
+              {workspaceLabel ?? "Not connected"}
+            </span>
           </Row>
         </div>
 
