@@ -154,11 +154,48 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     }
 
     const edges: GraphEdge[] = []
+    const seenEdge = new Set<string>()
+    const addEdge = (from: string, to: string, relation: string) => {
+      if (from === to) return
+      const key = from < to ? `${from}|${to}` : `${to}|${from}`
+      if (seenEdge.has(key)) return
+      seenEdge.add(key)
+      edges.push({ from, to, relation })
+    }
+
+    // Parent-child edges
     for (const [id, meta] of pages) {
       if (meta.parentId && pages.has(meta.parentId)) {
-        edges.push({ from: meta.parentId, to: id, relation: "contains" })
+        addEdge(meta.parentId, id, "contains")
       }
     }
+
+    // Content-link edges: scan the first ~30 blocks of every page in parallel
+    // batches and harvest mentions / link_to_page references. This is what
+    // makes the graph genuinely interconnected — a page linking to another
+    // page in its body text becomes a real edge between them.
+    const pageIds = Array.from(pages.keys())
+    const BATCH = 8
+    let linkEdgeCount = 0
+    for (let i = 0; i < pageIds.length; i += BATCH) {
+      const batch = pageIds.slice(i, i + BATCH)
+      const results = await Promise.all(
+        batch.map(id => fetchPageReferences(id, token).catch(() => [] as string[])),
+      )
+      results.forEach((refs, idx) => {
+        const sourceId = batch[idx]
+        for (const targetId of refs) {
+          if (pages.has(targetId)) {
+            addEdge(sourceId, targetId, "references")
+            linkEdgeCount++
+          }
+        }
+      })
+    }
+
+    console.log(
+      `[v0] Built ${edges.length} edges (${edges.length - linkEdgeCount} parent, ${linkEdgeCount} content links)`,
+    )
 
     // Cluster by connected component on the edge graph — every page that's
     // linked (directly or transitively) lands in the same cluster.
@@ -179,6 +216,75 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     const mockSnap = mockSnapshot()
     mockSnap.usingMock = true
     return mockSnap
+  }
+}
+
+/**
+ * Lightweight content scan that just harvests outgoing page references —
+ * @mentions in rich text and link_to_page blocks. Caches per token so we
+ * don't re-scan on every snapshot rebuild within the TTL.
+ */
+const referenceCache = new Map<string, { ids: string[]; fetchedAt: number }>()
+const REFERENCE_TTL = 5 * 60 * 1000
+
+async function fetchPageReferences(
+  pageId: string,
+  token?: string | null,
+): Promise<string[]> {
+  const cleanId = pageId.replace(/-/g, "")
+  const cacheKey = `${tokenKey(token)}:${cleanId}`
+  const cached = referenceCache.get(cacheKey)
+  const now = Date.now()
+  if (cached && now - cached.fetchedAt < REFERENCE_TTL) {
+    return cached.ids
+  }
+
+  try {
+    const res = await notionFetch<NotionBlockChildrenResponse>(
+      `/blocks/${cleanId}/children?page_size=30`,
+      undefined,
+      token,
+    )
+    const ids = new Set<string>()
+    for (const block of res.results) {
+      collectMentionsFromBlock(block, ids)
+    }
+    const out = Array.from(ids).map(id => id.replace(/-/g, ""))
+    referenceCache.set(cacheKey, { ids: out, fetchedAt: now })
+    return out
+  } catch {
+    referenceCache.set(cacheKey, { ids: [], fetchedAt: now })
+    return []
+  }
+}
+
+/**
+ * Walk a Notion block looking for cross-page references:
+ * - link_to_page blocks (with page_id or database_id)
+ * - rich-text mentions of type "page" or "database"
+ * - child_page / child_database blocks
+ */
+function collectMentionsFromBlock(block: any, out: Set<string>): void {
+  if (!block || typeof block !== "object") return
+  const t = block.type
+  const data = block[t]
+
+  if (t === "link_to_page" && data) {
+    if (data.page_id) out.add(data.page_id)
+    if (data.database_id) out.add(data.database_id)
+  }
+  if (t === "child_page" && block.id) {
+    out.add(block.id)
+  }
+  if (t === "child_database" && block.id) {
+    out.add(block.id)
+  }
+  if (data?.rich_text && Array.isArray(data.rich_text)) {
+    for (const rt of data.rich_text) {
+      const m = rt?.mention
+      if (m?.type === "page" && m.page?.id) out.add(m.page.id)
+      if (m?.type === "database" && m.database?.id) out.add(m.database.id)
+    }
   }
 }
 

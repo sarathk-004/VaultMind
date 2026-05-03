@@ -18,10 +18,10 @@ interface SimNode {
 
 const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
-// Repulsion only kicks in within this radius — keeps clusters tight while
-// preventing label overlap.
-const MIN_SEPARATION = 150
-const COLLISION_PADDING = 24
+// Wider repulsion radius so unrelated nodes have visible breathing room.
+// Edges are what bring linked pages back together.
+const MIN_SEPARATION = 220
+const COLLISION_PADDING = 36
 
 function seededRandom(seed: string) {
   let h = 0
@@ -120,17 +120,18 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // Springs and cluster gravity dominate over repulsion so members of the
-  // same connected component pull together into tight, readable groups.
-  const repulsionStrength = 7000
-  const springStrength = 0.45
-  const centerStrength = 0.001
-  const clusterStrength = 0.14
+  // Real cross-page edges now provide grouping pressure, so the layout can
+  // afford strong repulsion (spread-out look) while springs keep linked
+  // pages together. Cluster gravity is light — just enough to seed a region
+  // for each connected component, not pull it into a tight blob.
+  const repulsionStrength = 22000
+  const springStrength = 0.4
+  const centerStrength = 0.0008
+  const clusterStrength = 0.025
   const damping = 0.82
-  // Extra "soft spring" between any two same-cluster nodes (even with no
-  // direct edge) so connected components remain visually compact rather
-  // than relying on the centroid pull alone.
-  const sameClusterAttraction = 0.012
+  // Very mild soft pull between same-cluster nodes (handles the case where
+  // a component has only 1-2 edges so members would otherwise drift apart).
+  const sameClusterAttraction = 0.003
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
@@ -225,7 +226,7 @@ export function simulateLayout(
     // Fixed pixel length (independent of canvas size) — keeps linked pages
     // a consistent, readable distance apart regardless of how big the
     // virtual canvas grows for large workspaces.
-    const edgeLength = 130
+    const edgeLength = 165
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
