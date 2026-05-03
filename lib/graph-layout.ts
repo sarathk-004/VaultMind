@@ -60,9 +60,6 @@ export function simulateLayout(
   const cx = width / 2
   const cy = height / 2
 
-  // Group clusters by size: multi-node clusters get prime central real estate
-  // on an inner ring; isolated singletons (no graph connections) live on an
-  // outer perimeter so they don't visually compete with the structured groups.
   const clusterSize = new Map<string, number>()
   for (const n of nodes) {
     const c = n.cluster ?? n.id
@@ -120,24 +117,21 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // Real cross-page edges now provide grouping pressure, so the layout can
-  // afford strong repulsion (spread-out look) while springs keep linked
-  // pages together. Cluster gravity is light — just enough to seed a region
-  // for each connected component, not pull it into a tight blob.
-  const repulsionStrength = 45000
-  const springStrength = 0.15
-  const centerStrength = 0.0008
-  const clusterStrength = 0.025
-  const damping = 0.78
-  // Very mild soft pull between same-cluster nodes (handles the case where
-  // a component has only 1-2 edges so members would otherwise drift apart).
+  // TUNED PHYSICS:
+  // Weaken springs & repulsion slightly, and increase damping to bleed kinetic energy.
+  const repulsionStrength = 20000 
+  const springStrength = 0.03 // Lowered significantly so nodes aren't crushed together
+  const centerStrength = 0.001
+  const clusterStrength = 0.015
+  const damping = 0.65 // Lowered from 0.78 to stop chaotic bouncing
   const sameClusterAttraction = 0.001
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
-    const cooling = 1 - progress * 0.6
+    
+    // NEW COOLING: Drops all the way to 0 so the graph 'freezes' nicely at the end
+    const cooling = Math.max(0, 1 - Math.pow(progress, 1.2))
 
-    // Recompute cluster centroids (so groups stay coherent as they drift)
     const centroids = new Map<string, { x: number; y: number; n: number }>()
     for (const n of sim) {
       const c = n.cluster ?? n.id
@@ -155,7 +149,6 @@ export function simulateLayout(
       v.y /= v.n
     }
 
-    // Pair-wise repulsion + same-cluster attraction.
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -163,15 +156,14 @@ export function simulateLayout(
         let dx = b.x - a.x
         let dy = b.y - a.y
         let distSq = dx * dx + dy * dy
-        if (distSq < 100) {
+        if (distSq < 10) { 
           dx = (rand() - 0.5) * 2
           dy = (rand() - 0.5) * 2
-          distSq = 1
+          distSq = dx * dx + dy * dy
         }
         const dist = Math.sqrt(distSq)
         const sameCluster = a.cluster === b.cluster
         if (dist < MIN_SEPARATION) {
-          // Same-cluster repulsion is gentler so siblings sit close.
           const strength = sameCluster ? repulsionStrength * 0.45 : repulsionStrength
           const force = (strength / (distSq + 100)) * cooling
           const fx = (dx / dist) * force
@@ -181,8 +173,6 @@ export function simulateLayout(
           b.vx += fx
           b.vy += fy
         }
-        // Soft mutual pull between same-cluster nodes (regardless of edges)
-        // so a connected component stays a tight visual group.
         if (sameCluster && dist > 80) {
           const fx = (dx / dist) * dist * sameClusterAttraction * cooling
           const fy = (dy / dist) * dist * sameClusterAttraction * cooling
@@ -194,7 +184,7 @@ export function simulateLayout(
       }
     }
 
-    // Rectangle collision resolution
+    // NEW COLLISION LOGIC: Positional nudges instead of explosive velocities
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -205,28 +195,31 @@ export function simulateLayout(
         const halfH = NODE_HEIGHT / 2 + COLLISION_PADDING / 2
         const overlapX = halfW - Math.abs(dx)
         const overlapY = halfH - Math.abs(dy)
+        
         if (overlapX > 0 && overlapY > 0) {
-          const pushStrength = 4.5
+          // Push stays active even at low cooling to guarantee rigid non-overlap
+          const pushStrength = 0.5 * Math.max(0.1, cooling) 
+          
           if (overlapX < overlapY) {
-            const push = overlapX * pushStrength
+            const push = (overlapX * pushStrength) / 2
             const dir = Math.sign(dx) || 1
-            a.vx -= push * dir
-            b.vx += push * dir
+            a.x -= push * dir
+            b.x += push * dir
+            a.vx *= 0.5 // damp axis velocity to prevent jitter
+            b.vx *= 0.5
           } else {
-            const push = overlapY * pushStrength
+            const push = (overlapY * pushStrength) / 2
             const dir = Math.sign(dy) || 1
-            a.vy -= push * dir
-            b.vy += push * dir
+            a.y -= push * dir
+            b.y += push * dir
+            a.vy *= 0.5
+            b.vy *= 0.5
           }
         }
       }
     }
 
-    // Spring attraction along edges
-    // Fixed pixel length (independent of canvas size) — keeps linked pages
-    // a consistent, readable distance apart regardless of how big the
-    // virtual canvas grows for large workspaces.
-    const edgeLength = 200
+    const edgeLength = 250 // Give dense edges a bit more breathing room
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
@@ -243,15 +236,15 @@ export function simulateLayout(
       b.vy -= fy
     }
 
-    // Cluster gravity + global center + integrate
     for (const n of sim) {
       const c = centroids.get(n.cluster ?? n.id)
       if (c) {
-        n.vx += (c.x - n.x) * clusterStrength
-        n.vy += (c.y - n.y) * clusterStrength
+        n.vx += (c.x - n.x) * clusterStrength * cooling // Apply cooling here too!
+        n.vy += (c.y - n.y) * clusterStrength * cooling
       }
-      n.vx += (cx - n.x) * centerStrength
-      n.vy += (cy - n.y) * centerStrength
+      n.vx += (cx - n.x) * centerStrength * cooling
+      n.vy += (cy - n.y) * centerStrength * cooling
+      
       n.vx *= damping
       n.vy *= damping
       n.x += n.vx
