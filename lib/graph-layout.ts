@@ -50,7 +50,7 @@ export function simulateLayout(
   edges: GraphEdge[],
   width: number,
   height: number,
-  iterations = 800,
+  iterations = 00,
 ): PositionedNode[] {
   if (nodes.length === 0) return []
 
@@ -60,67 +60,58 @@ export function simulateLayout(
   const cx = width / 2
   const cy = height / 2
 
-  // ── Phase 1: cluster detection via edge connectivity ──────────────────
-  // Build connected components — nodes with no edges get their own cluster
-  const adjMap = new Map<string, Set<string>>()
-  for (const n of nodes) adjMap.set(n.id, new Set())
-  for (const e of edges) {
-    adjMap.get(e.from)?.add(e.to)
-    adjMap.get(e.to)?.add(e.from)
-  }
-
-  const visited = new Set<string>()
-  const componentOf = new Map<string, string>()
-  let componentCount = 0
-
+  // Group clusters by size: multi-node clusters get prime central real estate
+  // on an inner ring; isolated singletons (no graph connections) live on an
+  // outer perimeter so they don't visually compete with the structured groups.
+  const clusterSize = new Map<string, number>()
   for (const n of nodes) {
-    if (visited.has(n.id)) continue
-    const root = n.id
-    const queue = [n.id]
-    visited.add(n.id)
-    while (queue.length) {
-      const cur = queue.shift()!
-      componentOf.set(cur, root)
-      for (const neighbor of adjMap.get(cur) ?? []) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor)
-          queue.push(neighbor)
-        }
-      }
-    }
-    componentCount++
+    const c = n.cluster ?? n.id
+    clusterSize.set(c, (clusterSize.get(c) ?? 0) + 1)
   }
+  const multiClusters = Array.from(clusterSize.keys())
+    .filter(c => (clusterSize.get(c) ?? 0) > 1)
+    .sort((a, b) => (clusterSize.get(b) ?? 0) - (clusterSize.get(a) ?? 0))
+  const singletonClusters = Array.from(clusterSize.keys()).filter(
+    c => (clusterSize.get(c) ?? 0) === 1,
+  )
 
-  // ── Phase 2: assign cluster anchors in a grid, not a ring ─────────────
-  // Grid is far more stable than ring for 10+ clusters
-  const components = Array.from(new Set(componentOf.values()))
-  const cols = Math.ceil(Math.sqrt(components.length * 1.5))
-  const cellW = (width  - 120) / cols
-  const cellH = (height - 120) / Math.ceil(components.length / cols)
-
+  const minSize = Math.min(width, height)
+  const innerRadius = multiClusters.length > 1 ? minSize * 0.22 : 0
+  const outerRadius = minSize * 0.46
   const anchors = new Map<string, { x: number; y: number }>()
-  components.forEach((cId, i) => {
-    const col = i % cols
-    const row = Math.floor(i / cols)
-    anchors.set(cId, {
-      x: 60 + col * cellW + cellW / 2,
-      y: 60 + row * cellH + cellH / 2,
+
+  multiClusters.forEach((c, i) => {
+    if (multiClusters.length === 1) {
+      anchors.set(c, { x: cx, y: cy })
+      return
+    }
+    const angle = (i / multiClusters.length) * Math.PI * 2
+    anchors.set(c, {
+      x: cx + Math.cos(angle) * innerRadius,
+      y: cy + Math.sin(angle) * innerRadius,
+    })
+  })
+  singletonClusters.forEach((c, i) => {
+    const angle = (i / Math.max(singletonClusters.length, 1)) * Math.PI * 2
+    anchors.set(c, {
+      x: cx + Math.cos(angle) * outerRadius,
+      y: cy + Math.sin(angle) * outerRadius,
     })
   })
 
-  // ── Phase 3: initialize positions near cluster anchor ─────────────────
   const sim: SimNode[] = nodes.map(n => {
-    const cId = componentOf.get(n.id) ?? n.id
-    const anchor = anchors.get(cId)!
-    const angle = rand() * Math.PI * 2
-    const r = 30 + rand() * 50
+    const cluster = n.cluster ?? n.id
+    const a = anchors.get(cluster)!
+    const isSingleton = (clusterSize.get(cluster) ?? 1) === 1
+    const localR = isSingleton ? 30 + rand() * 30 : 50 + rand() * 40
+    const localAngle = rand() * Math.PI * 2
     return {
       id: n.id,
       label: n.label,
       type: n.type,
-      cluster: cId,
-      x: anchor.x + Math.cos(angle) * r,
-      y: anchor.y + Math.sin(angle) * r,
+      cluster,
+      x: a.x + Math.cos(localAngle) * localR,
+      y: a.y + Math.sin(localAngle) * localR,
       vx: 0,
       vy: 0,
     }
@@ -129,97 +120,156 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // ── Tuned constants for large graphs ──────────────────────────────────
-  const MIN_SEP         = 260
-  const repulsion       = 55000   // strong global spread
-  const crossRepulsion  = 80000   // extra push between different clusters
-  const springStr       = 0.08    // very weak spring — just enough to group
-  const edgeLen         = 180
-  const anchorStr       = 0.04    // pull each node toward its cluster anchor
-  const centerStr       = 0.0004  // very mild global center pull
-  const damping         = 0.75
-  const collPush        = 5.0     // constant collision resolution
+  // Real cross-page edges now provide grouping pressure, so the layout can
+  // afford strong repulsion (spread-out look) while springs keep linked
+  // pages together. Cluster gravity is light — just enough to seed a region
+  // for each connected component, not pull it into a tight blob.
+  const repulsionStrength = 45000
+  const springStrength = 0.15
+  const centerStrength = 0.0008
+  const clusterStrength = 0.025
+  const damping = 0.78
+  // Very mild soft pull between same-cluster nodes (handles the case where
+  // a component has only 1-2 edges so members would otherwise drift apart).
+  const sameClusterAttraction = 0.001
 
   for (let iter = 0; iter < iterations; iter++) {
-    const cooling = 1 - (iter / iterations) * 0.5
+    const progress = iter / iterations
+    const cooling = 1 - progress * 0.6
 
-    // Repulsion (cross-cluster gets extra push)
+    // Recompute cluster centroids (so groups stay coherent as they drift)
+    const centroids = new Map<string, { x: number; y: number; n: number }>()
+    for (const n of sim) {
+      const c = n.cluster ?? n.id
+      const cur = centroids.get(c)
+      if (cur) {
+        cur.x += n.x
+        cur.y += n.y
+        cur.n++
+      } else {
+        centroids.set(c, { x: n.x, y: n.y, n: 1 })
+      }
+    }
+    for (const v of centroids.values()) {
+      v.x /= v.n
+      v.y /= v.n
+    }
+
+    // Pair-wise repulsion + same-cluster attraction.
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
-        const a = sim[i], b = sim[j]
+        const a = sim[i]
+        const b = sim[j]
         let dx = b.x - a.x
         let dy = b.y - a.y
         let distSq = dx * dx + dy * dy
-        if (distSq < 1) { dx = rand()-0.5; dy = rand()-0.5; distSq = 0.5 }
+        if (distSq < 100) {
+          dx = (rand() - 0.5) * 2
+          dy = (rand() - 0.5) * 2
+          distSq = 1
+        }
         const dist = Math.sqrt(distSq)
-        if (dist >= MIN_SEP) continue
-
-        const sameCl = a.cluster === b.cluster
-        const str = sameCl ? repulsion * 0.4 : crossRepulsion
-        const force = (str / (distSq + 50)) * cooling
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        a.vx -= fx; a.vy -= fy
-        b.vx += fx; b.vy += fy
+        const sameCluster = a.cluster === b.cluster
+        if (dist < MIN_SEPARATION) {
+          // Same-cluster repulsion is gentler so siblings sit close.
+          const strength = sameCluster ? repulsionStrength * 0.45 : repulsionStrength
+          const force = (strength / (distSq + 100)) * cooling
+          const fx = (dx / dist) * force
+          const fy = (dy / dist) * force
+          a.vx -= fx
+          a.vy -= fy
+          b.vx += fx
+          b.vy += fy
+        }
+        // Soft mutual pull between same-cluster nodes (regardless of edges)
+        // so a connected component stays a tight visual group.
+        if (sameCluster && dist > 80) {
+          const fx = (dx / dist) * dist * sameClusterAttraction * cooling
+          const fy = (dy / dist) * dist * sameClusterAttraction * cooling
+          a.vx += fx
+          a.vy += fy
+          b.vx -= fx
+          b.vy -= fy
+        }
       }
     }
 
-    // Rectangle collision (constant strength — no cooling)
+    // Rectangle collision resolution
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
-        const a = sim[i], b = sim[j]
-        const dx = b.x - a.x, dy = b.y - a.y
-        const hw = NODE_WIDTH / 2 + COLLISION_PADDING / 2
-        const hh = NODE_HEIGHT / 2 + COLLISION_PADDING / 2
-        const ox = hw - Math.abs(dx)
-        const oy = hh - Math.abs(dy)
-        if (ox > 0 && oy > 0) {
-          if (ox < oy) {
-            const push = ox * collPush * (Math.sign(dx) || 1)
-            a.vx -= push; b.vx += push
+        const a = sim[i]
+        const b = sim[j]
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const halfW = NODE_WIDTH / 2 + COLLISION_PADDING / 2
+        const halfH = NODE_HEIGHT / 2 + COLLISION_PADDING / 2
+        const overlapX = halfW - Math.abs(dx)
+        const overlapY = halfH - Math.abs(dy)
+        if (overlapX > 0 && overlapY > 0) {
+          const pushStrength = 4.5
+          if (overlapX < overlapY) {
+            const push = overlapX * pushStrength
+            const dir = Math.sign(dx) || 1
+            a.vx -= push * dir
+            b.vx += push * dir
           } else {
-            const push = oy * collPush * (Math.sign(dy) || 1)
-            a.vy -= push; b.vy += push
+            const push = overlapY * pushStrength
+            const dir = Math.sign(dy) || 1
+            a.vy -= push * dir
+            b.vy += push * dir
           }
         }
       }
     }
 
-    // Spring along edges
+    // Spring attraction along edges
+    // Fixed pixel length (independent of canvas size) — keeps linked pages
+    // a consistent, readable distance apart regardless of how big the
+    // virtual canvas grows for large workspaces.
+    const edgeLength = 200
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
-      const dx = b.x - a.x, dy = b.y - a.y
-      const dist = Math.sqrt(dx*dx + dy*dy) || 1
-      const disp = dist - edgeLen
-      const force = disp * springStr * cooling
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1
+      const displacement = dist - edgeLength
+      const force = displacement * springStrength * cooling
       const fx = (dx / dist) * force
       const fy = (dy / dist) * force
-      a.vx += fx; a.vy += fy
-      b.vx -= fx; b.vy -= fy
+      a.vx += fx
+      a.vy += fy
+      b.vx -= fx
+      b.vy -= fy
     }
 
-    // Anchor pull + center pull + integrate
+    // Cluster gravity + global center + integrate
     for (const n of sim) {
-      const anchor = anchors.get(n.cluster ?? n.id)!
-      n.vx += (anchor.x - n.x) * anchorStr
-      n.vy += (anchor.y - n.y) * anchorStr
-      n.vx += (cx - n.x) * centerStr
-      n.vy += (cy - n.y) * centerStr
+      const c = centroids.get(n.cluster ?? n.id)
+      if (c) {
+        n.vx += (c.x - n.x) * clusterStrength
+        n.vy += (c.y - n.y) * clusterStrength
+      }
+      n.vx += (cx - n.x) * centerStrength
+      n.vy += (cy - n.y) * centerStrength
       n.vx *= damping
       n.vy *= damping
       n.x += n.vx
       n.y += n.vy
 
-      const pad = NODE_WIDTH / 2 + 40
-      n.x = Math.max(pad, Math.min(width  - pad, n.x))
-      n.y = Math.max(pad, Math.min(height - pad, n.y))
+      const boundPadding = NODE_WIDTH / 2 + 50
+      n.x = Math.max(boundPadding, Math.min(width - boundPadding, n.x))
+      n.y = Math.max(boundPadding, Math.min(height - boundPadding, n.y))
     }
   }
 
   return sim.map(n => ({
-    id: n.id, label: n.label, type: n.type,
-    cluster: n.cluster, x: n.x, y: n.y,
+    id: n.id,
+    label: n.label,
+    type: n.type,
+    cluster: n.cluster,
+    x: n.x,
+    y: n.y,
   }))
 }
 
