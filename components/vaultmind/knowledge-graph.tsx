@@ -216,14 +216,21 @@ function GraphCanvas({
     [transform],
   )
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+  // React's onWheel uses passive listeners, so preventDefault() is ignored —
+  // letting trackpad pinch (deltaY with ctrlKey=true) zoom the whole page.
+  // Attach a native non-passive listener instead.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
       e.preventDefault()
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (!rect) return
+      const rect = el.getBoundingClientRect()
       const sx = e.clientX - rect.left
       const sy = e.clientY - rect.top
-      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+      // Pinch zoom on trackpad arrives as a wheel event with ctrlKey=true and
+      // larger deltaY values; tame it with a smaller per-event factor.
+      const intensity = e.ctrlKey ? 0.02 : 0.1
+      const factor = e.deltaY < 0 ? 1 + intensity : 1 / (1 + intensity)
       setTransform(prev => {
         const newK = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev.k * factor))
         const ratio = newK / prev.k
@@ -233,9 +240,10 @@ function GraphCanvas({
           y: sy - (sy - prev.y) * ratio,
         }
       })
-    },
-    [],
-  )
+    }
+    el.addEventListener("wheel", handler, { passive: false })
+    return () => el.removeEventListener("wheel", handler)
+  }, [])
 
   const onBackgroundMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return
@@ -300,6 +308,20 @@ function GraphCanvas({
     }
   }, [transform.k])
 
+  // Computes a zoom level that fits, but clamps to a readable minimum so the
+  // side panel doesn't end up at 8% zoom when there are 100+ nodes — instead
+  // the user pans to navigate. Fullscreen uses the true fit value.
+  const computeFitTransform = useCallback(() => {
+    const fit = Math.min(size.width / virtualSize.w, size.height / virtualSize.h, 1)
+    const minReadable = fullscreen ? fit : Math.max(fit, 0.55)
+    const k = minReadable
+    return {
+      k,
+      x: (size.width - virtualSize.w * k) / 2,
+      y: (size.height - virtualSize.h * k) / 2,
+    }
+  }, [size.width, size.height, virtualSize.w, virtualSize.h, fullscreen])
+
   // Re-center on graph change
   const lastGraphKey = useRef<string>("")
   useEffect(() => {
@@ -307,23 +329,12 @@ function GraphCanvas({
     if (key === lastGraphKey.current) return
     lastGraphKey.current = key
     if (!renderGraph || renderGraph.nodes.length === 0) return
-    // Fit virtualSize into size
-    const k = Math.min(size.width / virtualSize.w, size.height / virtualSize.h, 1)
-    setTransform({
-      k,
-      x: (size.width - virtualSize.w * k) / 2,
-      y: (size.height - virtualSize.h * k) / 2,
-    })
-  }, [renderGraph, size.width, size.height, virtualSize.w, virtualSize.h])
+    setTransform(computeFitTransform())
+  }, [renderGraph, computeFitTransform])
 
   const recenter = () => {
     if (!renderGraph || renderGraph.nodes.length === 0) return
-    const k = Math.min(size.width / virtualSize.w, size.height / virtualSize.h, 1)
-    setTransform({
-      k,
-      x: (size.width - virtualSize.w * k) / 2,
-      y: (size.height - virtualSize.h * k) / 2,
-    })
+    setTransform(computeFitTransform())
     setDragOverrides(new Map())
   }
 
@@ -392,7 +403,6 @@ function GraphCanvas({
         ref={containerRef}
         className="relative flex-1 graph-grid overflow-hidden select-none"
         style={{ cursor: interactionRef.current.type === "pan" ? "grabbing" : "grab" }}
-        onWheel={onWheel}
         onMouseDown={onBackgroundMouseDown}
       >
         {workspaceLoading && (

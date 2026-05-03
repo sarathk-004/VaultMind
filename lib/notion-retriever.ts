@@ -159,7 +159,7 @@ function assignClusters(pages: Map<string, NotionPageMeta>): void {
  * Reduce a workspace snapshot to a renderable graph. Picks top-N hubs by
  * degree so dense vaults stay readable. Carries cluster ids onto the nodes.
  */
-export function snapshotToGraph(snap: CachedSnapshot, maxNodes = 60): KnowledgeGraph {
+export function snapshotToGraph(snap: CachedSnapshot, maxNodes = 500): KnowledgeGraph {
   const degree = new Map<string, number>()
   for (const e of snap.edges) {
     degree.set(e.from, (degree.get(e.from) ?? 0) + 1)

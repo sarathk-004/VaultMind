@@ -18,9 +18,10 @@ interface SimNode {
 
 const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
-// Increased so labels never visually overlap and edges are easy to follow.
-const MIN_SEPARATION = 260
-const COLLISION_PADDING = 70
+// Repulsion only kicks in within this radius — keeps clusters tight while
+// preventing label overlap.
+const MIN_SEPARATION = 200
+const COLLISION_PADDING = 40
 
 function seededRandom(seed: string) {
   let h = 0
@@ -95,10 +96,13 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  const repulsionStrength = 42000
-  const springStrength = 0.06
-  const centerStrength = 0.002
-  const clusterStrength = 0.009
+  // Springs now dominate over repulsion at typical inter-node distances so
+  // connected pages stay visually close. Cluster pull is also stronger so
+  // groups remain tight.
+  const repulsionStrength = 18000
+  const springStrength = 0.22
+  const centerStrength = 0.0015
+  const clusterStrength = 0.025
   const damping = 0.82
 
   for (let iter = 0; iter < iterations; iter++) {
@@ -178,7 +182,10 @@ export function simulateLayout(
     }
 
     // Spring attraction along edges
-    const edgeLength = Math.min(width, height) * 0.24
+    // Fixed pixel length (independent of canvas size) — keeps linked pages
+    // a consistent, readable distance apart regardless of how big the
+    // virtual canvas grows for large workspaces.
+    const edgeLength = 180
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
