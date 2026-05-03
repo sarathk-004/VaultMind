@@ -45,12 +45,14 @@ function seededRandom(seed: string) {
  *   - Edges: spring forces along graph edges.
  *   - Collision pass: rectangle overlap resolution.
  */
+// Add this helper function above simulateLayout
+
 export function simulateLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
   width: number,
   height: number,
-  iterations = 600,
+  iterations = 700,
 ): PositionedNode[] {
   if (nodes.length === 0) return []
 
