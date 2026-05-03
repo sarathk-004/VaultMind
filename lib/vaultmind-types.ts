@@ -6,6 +6,8 @@ export interface GraphNode {
   id: string
   label: string
   type?: NodeType | string
+  /** Group/cluster id — nodes with the same cluster are visually grouped. */
+  cluster?: string
 }
 
 export interface GraphEdge {

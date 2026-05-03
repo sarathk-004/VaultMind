@@ -4,6 +4,7 @@ import {
   getPageTitle,
   getDatabaseTitle,
   richTextToPlain,
+  tokenKey,
   type NotionPage,
   type NotionDatabase,
   type NotionSearchResponse,
@@ -20,9 +21,11 @@ interface NotionPageMeta {
   type: NodeType
   parentId?: string
   url?: string
+  /** Cluster id — top-level ancestor in the parent chain, or self if root. */
+  cluster?: string
 }
 
-interface CachedSnapshot {
+export interface CachedSnapshot {
   pages: Map<string, NotionPageMeta>
   edges: GraphEdge[]
   fetchedAt: number
@@ -35,24 +38,44 @@ interface CachedPageContent {
   fetchedAt: number
 }
 
-let snapshot: CachedSnapshot | null = null
-const SNAPSHOT_TTL = 5 * 60_000 // 5 minutes
-const pageCache = new Map<string, CachedPageContent>()
-const PAGE_CACHE_TTL = 10 * 60_000 // 10 minutes
+const SNAPSHOT_TTL = 5 * 60_000
+const PAGE_CACHE_TTL = 10 * 60_000
+
+const snapshotByToken = new Map<string, CachedSnapshot>()
+const pageCacheByToken = new Map<string, Map<string, CachedPageContent>>()
+
+function getPageCache(key: string): Map<string, CachedPageContent> {
+  let m = pageCacheByToken.get(key)
+  if (!m) {
+    m = new Map()
+    pageCacheByToken.set(key, m)
+  }
+  return m
+}
+
+/** Wipe caches for a specific token (used when user disconnects). */
+export function clearTokenCaches(token: string | null | undefined): void {
+  const key = tokenKey(token)
+  snapshotByToken.delete(key)
+  pageCacheByToken.delete(key)
+}
 
 /**
- * Fetch all accessible pages & databases from Notion. Returns a snapshot
- * with { pages, edges }. Falls back to local mock workspace if Notion is unavailable.
+ * Fetch all accessible pages & databases from Notion. Falls back to local
+ * mock workspace if Notion is unavailable or zero pages are accessible.
  */
-export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
-  if (!isNotionConnected()) {
-    console.log("[v0] NOTION_API_KEY not set — using local mock workspace")
+export async function getWorkspaceSnapshot(token?: string | null): Promise<CachedSnapshot> {
+  const key = tokenKey(token)
+
+  if (!isNotionConnected(token)) {
+    console.log("[v0] No Notion token — using local mock workspace")
     return mockSnapshot()
   }
 
   const now = Date.now()
-  if (snapshot && snapshot.source === "notion" && now - snapshot.fetchedAt < SNAPSHOT_TTL) {
-    return snapshot
+  const cached = snapshotByToken.get(key)
+  if (cached && cached.source === "notion" && now - cached.fetchedAt < SNAPSHOT_TTL) {
+    return cached
   }
 
   try {
@@ -60,14 +83,14 @@ export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
     let cursor: string | undefined
     let safetyCount = 0
 
-    // Notion search with empty query lists everything the integration can see.
     do {
       const body: Record<string, unknown> = { page_size: 100 }
       if (cursor) body.start_cursor = cursor
-      const res = await notionFetch<NotionSearchResponse>("/search", {
-        method: "POST",
-        body,
-      })
+      const res = await notionFetch<NotionSearchResponse>(
+        "/search",
+        { method: "POST", body },
+        token,
+      )
 
       for (const item of res.results) {
         const meta = parseSearchResult(item)
@@ -76,7 +99,7 @@ export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
 
       cursor = res.next_cursor ?? undefined
       safetyCount++
-    } while (cursor && safetyCount < 10) // up to 1000 items
+    } while (cursor && safetyCount < 10)
 
     if (pages.size === 0) {
       console.log("[v0] Notion returned 0 pages — falling back to mock workspace")
@@ -92,9 +115,19 @@ export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
       }
     }
 
-    snapshot = { pages, edges, fetchedAt: now, source: "notion", usingMock: false }
+    // Compute clusters: walk parent chain → top-level ancestor.
+    assignClusters(pages)
+
+    const snap: CachedSnapshot = {
+      pages,
+      edges,
+      fetchedAt: now,
+      source: "notion",
+      usingMock: false,
+    }
+    snapshotByToken.set(key, snap)
     console.log(`[v0] Fetched Notion workspace: ${pages.size} items, ${edges.length} edges`)
-    return snapshot
+    return snap
   } catch (err) {
     console.error("[v0] Failed to fetch Notion workspace, falling back to mock data:", err)
     const mockSnap = mockSnapshot()
@@ -103,8 +136,30 @@ export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
   }
 }
 
+function assignClusters(pages: Map<string, NotionPageMeta>): void {
+  const memo = new Map<string, string>()
+  const findRoot = (id: string, depth = 0): string => {
+    if (depth > 20) return id
+    if (memo.has(id)) return memo.get(id)!
+    const m = pages.get(id)
+    if (!m || !m.parentId || !pages.has(m.parentId)) {
+      memo.set(id, id)
+      return id
+    }
+    const root = findRoot(m.parentId, depth + 1)
+    memo.set(id, root)
+    return root
+  }
+  for (const [id, meta] of pages) {
+    meta.cluster = findRoot(id)
+  }
+}
+
+/**
+ * Reduce a workspace snapshot to a renderable graph. Picks top-N hubs by
+ * degree so dense vaults stay readable. Carries cluster ids onto the nodes.
+ */
 export function snapshotToGraph(snap: CachedSnapshot, maxNodes = 60): KnowledgeGraph {
-  // Compute degree for every node and keep the most connected (hubs).
   const degree = new Map<string, number>()
   for (const e of snap.edges) {
     degree.set(e.from, (degree.get(e.from) ?? 0) + 1)
@@ -112,17 +167,14 @@ export function snapshotToGraph(snap: CachedSnapshot, maxNodes = 60): KnowledgeG
   }
 
   const allMetas = Array.from(snap.pages.values())
-  if (allMetas.length <= maxNodes) {
-    const nodes: GraphNode[] = allMetas.map(m => ({ id: m.id, label: m.title, type: m.type }))
-    return { nodes, edges: snap.edges }
-  }
-
   const sorted = allMetas.slice().sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0))
   const kept = new Set<string>(sorted.slice(0, maxNodes).map(m => m.id))
+
   const nodes: GraphNode[] = sorted.slice(0, maxNodes).map(m => ({
     id: m.id,
     label: m.title,
     type: m.type,
+    cluster: m.cluster,
   }))
   const edges = snap.edges.filter(e => kept.has(e.from) && kept.has(e.to))
   return { nodes, edges }
@@ -134,9 +186,10 @@ const STOPWORDS = new Set([
   "the","a","an","and","or","but","of","to","in","on","for","with","is","are","was","were",
   "be","been","being","this","that","what","how","why","when","where","which","who","tell",
   "show","find","give","please","about","my","me","i","do","does","did","can","could","would",
+  "should","will","shall","may","might","must","need","want","get","got","make","take","like",
+  "from","into","over","under","up","down","out","off","than","then","also","just","very",
 ])
 
-/** Tokenize for scoring. Keeps short technical acronyms (ML, AI, JS) and numbers. */
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -145,106 +198,223 @@ function tokenize(text: string): string[] {
     .filter(t => t.length >= 2 && !STOPWORDS.has(t))
 }
 
-/** Word-boundary regex match — prevents "ML" from matching "small". */
-function wordMatch(haystack: string, token: string): boolean {
-  const re = new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")
-  return re.test(haystack)
-}
-
-interface ScoredPage {
-  page: NotionPageMeta
-  score: number
+interface DocFeatures {
+  meta: NotionPageMeta
+  /** Concatenated title + (optional) snippet, plain text. */
+  text: string
+  tokens: string[]
 }
 
 /**
- * Rank by:
- *   1. Notion's own `/search` (content-aware, server-side ranking)
- *   2. Token-based title scoring with word-boundary matching
- * Results are merged with Notion's results boosted (they search content too).
+ * Content-aware retrieval pipeline (no LLM needed):
+ *   1. Get candidate set: union of (a) Notion `/search?query`, (b) any local
+ *      title-substring matches, capped at ~30 docs.
+ *   2. Fetch a short content snippet for each candidate in parallel.
+ *   3. Score every candidate with BM25 over (title + snippet).
+ *   4. Add 1-hop graph neighbor bonus (related-to-top-hits).
+ *   5. Return top 8.
  */
-export async function rankPages(query: string, snap: CachedSnapshot): Promise<NotionPageMeta[]> {
-  const tokens = tokenize(query)
-  if (tokens.length === 0) {
-    return Array.from(snap.pages.values()).slice(0, 5)
+export async function rankPages(
+  query: string,
+  snap: CachedSnapshot,
+  token?: string | null,
+): Promise<NotionPageMeta[]> {
+  const qTokens = tokenize(query)
+  if (qTokens.length === 0) {
+    return Array.from(snap.pages.values()).slice(0, 6)
   }
 
-  // Score against the snapshot using word-boundary matching
-  const scored: ScoredPage[] = Array.from(snap.pages.values())
-    .map(page => {
-      const title = page.title.toLowerCase()
-      let score = 0
-      for (const t of tokens) {
-        if (wordMatch(title, t)) score += 10 // exact title word match
-        else if (title.includes(t)) score += 2 // partial title contains
+  // 1. Build a candidate set
+  const candidates = new Map<string, NotionPageMeta>()
+
+  // a) Local title contains — fast pre-filter
+  const qPhrase = qTokens.join(" ")
+  for (const meta of snap.pages.values()) {
+    const t = meta.title.toLowerCase()
+    if (qTokens.some(tok => t.includes(tok))) {
+      candidates.set(meta.id, meta)
+      if (candidates.size >= 30) break
+    }
+  }
+
+  // b) Notion's content-aware search (if connected)
+  if (!snap.usingMock) {
+    try {
+      const res = await notionFetch<NotionSearchResponse>(
+        "/search",
+        { method: "POST", body: { query, page_size: 20 } },
+        token,
+      )
+      for (const item of res.results) {
+        const meta = parseSearchResult(item)
+        if (!meta) continue
+        const known = snap.pages.get(meta.id) ?? meta
+        candidates.set(known.id, known)
+        if (candidates.size >= 35) break
       }
-      // Type bonus
-      if (tokens.some(t => wordMatch(page.type, t))) score += 1
-      return { page, score }
+    } catch (err) {
+      console.warn("[v0] Notion content search failed:", err)
+    }
+  }
+
+  if (candidates.size === 0) return []
+
+  // 2. Fetch short snippets in parallel (capped at 25 to keep latency bounded)
+  const candList = Array.from(candidates.values()).slice(0, 25)
+  const snippets = await Promise.all(
+    candList.map(meta => fetchSnippet(meta, token).catch(() => "")),
+  )
+
+  // 3. Build doc features + run BM25
+  const docs: DocFeatures[] = candList.map((meta, i) => {
+    const text = `${meta.title}\n${snippets[i] ?? ""}`
+    return { meta, text, tokens: tokenize(text) }
+  })
+
+  const bm25Scores = bm25(qTokens, docs)
+
+  // 4. Add graph neighbor boost — neighbors of top-3 raw BM25 hits get a bump
+  const adjacency = new Map<string, Set<string>>()
+  for (const e of snap.edges) {
+    if (!adjacency.has(e.from)) adjacency.set(e.from, new Set())
+    if (!adjacency.has(e.to)) adjacency.set(e.to, new Set())
+    adjacency.get(e.from)!.add(e.to)
+    adjacency.get(e.to)!.add(e.from)
+  }
+
+  const sortedRaw = bm25Scores.slice().sort((a, b) => b.score - a.score)
+  const topRawIds = new Set(sortedRaw.slice(0, 3).map(s => s.id))
+  const neighborSet = new Set<string>()
+  for (const id of topRawIds) {
+    for (const n of adjacency.get(id) ?? []) neighborSet.add(n)
+  }
+
+  // 5. Final score = BM25 + 0.3 * neighbor_bonus + small title-exact bonus
+  const final = bm25Scores
+    .map(s => {
+      let score = s.score
+      if (neighborSet.has(s.id) && !topRawIds.has(s.id)) score += 0.3 * sortedRaw[0].score
+      const m = snap.pages.get(s.id)
+      if (m) {
+        const t = m.title.toLowerCase()
+        for (const tok of qTokens) {
+          // Exact word match in title is a strong signal
+          if (new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t)) {
+            score += 0.5
+          }
+        }
+      }
+      return { id: s.id, score }
     })
     .filter(s => s.score > 0)
     .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
 
-  // 2. Ask Notion for content-aware results (it indexes page bodies)
-  let notionRanked: NotionPageMeta[] = []
-  if (!snap.usingMock) {
-    try {
-      const res = await notionFetch<NotionSearchResponse>("/search", {
-        method: "POST",
-        body: { query, page_size: 12 },
-      })
-      for (const item of res.results) {
-        const id = item.id.replace(/-/g, "")
-        const meta = snap.pages.get(id) ?? parseSearchResult(item) ?? null
-        if (meta) notionRanked.push(meta)
-      }
-      console.log(`[v0] Notion content search returned ${notionRanked.length} results for "${query}"`)
-    } catch (err) {
-      console.warn("[v0] Notion content search failed, using local scoring only:", err)
+  return final
+    .map(s => snap.pages.get(s.id))
+    .filter((m): m is NotionPageMeta => Boolean(m))
+}
+
+/**
+ * BM25 over the candidate corpus. Returns one entry per doc (preserving order).
+ * Returns score 0 if a doc has no query-token match.
+ */
+function bm25(qTokens: string[], docs: DocFeatures[]): { id: string; score: number }[] {
+  const k1 = 1.4
+  const b = 0.75
+  const N = docs.length || 1
+
+  // Document frequency for each query token
+  const df = new Map<string, number>()
+  for (const t of qTokens) {
+    let count = 0
+    for (const d of docs) {
+      if (d.tokens.includes(t)) count++
     }
+    df.set(t, count)
   }
 
-  // Merge: Notion results first (content-aware) then title-scored (deduped)
-  const seen = new Set<string>()
-  const merged: NotionPageMeta[] = []
-  for (const p of notionRanked) {
-    if (!seen.has(p.id)) {
-      seen.add(p.id)
-      merged.push(p)
-    }
-    if (merged.length >= 8) break
-  }
-  for (const s of scored) {
-    if (merged.length >= 8) break
-    if (!seen.has(s.page.id)) {
-      seen.add(s.page.id)
-      merged.push(s.page)
-    }
-  }
+  const totalLen = docs.reduce((a, d) => a + d.tokens.length, 0)
+  const avgLen = totalLen / N || 1
 
-  // No matches at all → empty (do NOT fall back to random pages, that was the bug)
-  return merged
+  return docs.map(d => {
+    let score = 0
+    const len = d.tokens.length || 1
+    for (const t of qTokens) {
+      const dft = df.get(t) ?? 0
+      if (dft === 0) continue
+      const tf = d.tokens.reduce((a, x) => (x === t ? a + 1 : a), 0)
+      if (tf === 0) continue
+      const idf = Math.log(1 + (N - dft + 0.5) / (dft + 0.5))
+      const norm = tf * (k1 + 1) / (tf + k1 * (1 - b + (b * len) / avgLen))
+      score += idf * norm
+    }
+    return { id: d.meta.id, score }
+  })
+}
+
+/**
+ * Fetch a short plain-text snippet (~600 chars) for ranking. Re-uses the
+ * full-page cache when available to avoid duplicate Notion calls.
+ */
+async function fetchSnippet(meta: NotionPageMeta, token?: string | null): Promise<string> {
+  // Mock branch — pull from local note content
+  const mockHit = NOTE_CONTENT[meta.id]
+  if (mockHit) return mockHit.content.slice(0, 600)
+
+  const cached = getPageCache(tokenKey(token)).get(meta.id)
+  if (cached) return cached.content.content.slice(0, 600)
+
+  if (!isNotionConnected(token)) return ""
+
+  try {
+    if (meta.type === "database") {
+      // Just probe the first row's properties — cheap and indicative.
+      const res = await notionFetch<{ results: NotionPage[] }>(
+        `/databases/${meta.id}/query`,
+        { method: "POST", body: { page_size: 3 } },
+        token,
+      )
+      const rows = res.results
+        .map(p =>
+          Object.values(p.properties ?? {})
+            .map(v => (v?.title ? richTextToPlain(v.title) : ""))
+            .join(" "),
+        )
+        .join(" ")
+      return rows.slice(0, 600)
+    }
+
+    const res = await notionFetch<NotionBlockChildrenResponse>(
+      `/blocks/${meta.id}/children?page_size=20`,
+      undefined,
+      token,
+    )
+    const { markdown } = blocksToMarkdown(res.results, { childrenMap: new Map() })
+    return markdown.slice(0, 600)
+  } catch {
+    return ""
+  }
 }
 
 // ── Page content ────────────────────────────────────────────────────────
 
-/**
- * Fetch full markdown content for a Notion page or database. Recurses into
- * nested blocks (toggles, columns, tables) and inlines child_database rows.
- */
-export async function fetchPageContent(pageId: string): Promise<NoteContent | null> {
+export async function fetchPageContent(
+  pageId: string,
+  token?: string | null,
+): Promise<NoteContent | null> {
   const cleanId = pageId.replace(/-/g, "")
-  const cached = pageCache.get(cleanId)
+  const cache = getPageCache(tokenKey(token))
+  const cached = cache.get(cleanId)
   const now = Date.now()
-  if (cached && now - cached.fetchedAt < PAGE_CACHE_TTL) {
-    return cached.content
-  }
+  if (cached && now - cached.fetchedAt < PAGE_CACHE_TTL) return cached.content
 
-  if (!isNotionConnected()) {
+  if (!isNotionConnected(token)) {
     return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
   }
 
   try {
-    const snap = await getWorkspaceSnapshot()
+    const snap = await getWorkspaceSnapshot(token)
     if (snap.usingMock) {
       return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
     }
@@ -252,9 +422,8 @@ export async function fetchPageContent(pageId: string): Promise<NoteContent | nu
     const meta = snap.pages.get(cleanId) ?? snap.pages.get(pageId)
     if (!meta) return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
 
-    // If the page is itself a database, query its rows directly
     if (meta.type === "database") {
-      const md = await fetchDatabaseMarkdown(cleanId, meta.title)
+      const md = await fetchDatabaseMarkdown(cleanId, meta.title, token)
       const content: NoteContent = {
         id: cleanId,
         title: meta.title,
@@ -262,20 +431,17 @@ export async function fetchPageContent(pageId: string): Promise<NoteContent | nu
         content: md || "_(Empty database)_",
         relatedNodes: [],
       }
-      pageCache.set(cleanId, { content, fetchedAt: now })
+      cache.set(cleanId, { content, fetchedAt: now })
       return content
     }
 
-    // Regular page: fetch top-level blocks + recurse into nested children
-    const topLevel = await fetchAllChildren(cleanId)
-    const childrenMap = await prefetchNestedChildren(topLevel)
-
+    const topLevel = await fetchAllChildren(cleanId, token)
+    const childrenMap = await prefetchNestedChildren(topLevel, token)
     const extracted = blocksToMarkdown(topLevel, { childrenMap })
 
-    // Inline child_database rows
     let extraSections = ""
     for (const cdb of extracted.childDatabaseIds.slice(0, 3)) {
-      const dbMd = await fetchDatabaseMarkdown(cdb.id.replace(/-/g, ""), cdb.title)
+      const dbMd = await fetchDatabaseMarkdown(cdb.id.replace(/-/g, ""), cdb.title, token)
       if (dbMd) extraSections += `\n\n#### ${cdb.title}\n${dbMd}`
     }
 
@@ -286,8 +452,7 @@ export async function fetchPageContent(pageId: string): Promise<NoteContent | nu
       content: (extracted.markdown + extraSections).trim() || "_(No content yet)_",
       relatedNodes: extracted.mentionedIds.map(id => id.replace(/-/g, "")),
     }
-
-    pageCache.set(cleanId, { content, fetchedAt: now })
+    cache.set(cleanId, { content, fetchedAt: now })
     return content
   } catch (err) {
     console.error(`[v0] Failed to fetch page ${cleanId}:`, err)
@@ -295,14 +460,13 @@ export async function fetchPageContent(pageId: string): Promise<NoteContent | nu
   }
 }
 
-/** Fetch all top-level block children for a page (handles pagination). */
-async function fetchAllChildren(blockId: string): Promise<NotionBlock[]> {
+async function fetchAllChildren(blockId: string, token?: string | null): Promise<NotionBlock[]> {
   const out: NotionBlock[] = []
   let cursor: string | undefined
   let safety = 0
   do {
     const path = `/blocks/${blockId}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`
-    const res = await notionFetch<NotionBlockChildrenResponse>(path)
+    const res = await notionFetch<NotionBlockChildrenResponse>(path, undefined, token)
     out.push(...res.results)
     cursor = res.next_cursor ?? undefined
     safety++
@@ -310,38 +474,27 @@ async function fetchAllChildren(blockId: string): Promise<NotionBlock[]> {
   return out
 }
 
-/**
- * For blocks that have children (toggle, column_list, column, synced_block,
- * table), fetch their child blocks once so the markdown converter can recurse.
- */
 async function prefetchNestedChildren(
   blocks: NotionBlock[],
+  token?: string | null,
 ): Promise<Map<string, NotionBlock[]>> {
   const map = new Map<string, NotionBlock[]>()
   const NEEDS_CHILDREN = new Set([
-    "toggle",
-    "column_list",
-    "column",
-    "synced_block",
-    "table",
-    "bulleted_list_item",
-    "numbered_list_item",
-    "callout",
-    "quote",
+    "toggle","column_list","column","synced_block","table",
+    "bulleted_list_item","numbered_list_item","callout","quote",
   ])
 
-  // BFS one level deep, then for column_list go one more (to hit columns→content)
   const queue: { block: NotionBlock; depth: number }[] = blocks
     .filter(b => b.has_children && NEEDS_CHILDREN.has(b.type))
     .map(b => ({ block: b, depth: 0 }))
 
   let safety = 0
-  while (queue.length > 0 && safety < 50) {
+  while (queue.length > 0 && safety < 60) {
     const { block, depth } = queue.shift()!
     safety++
     if (map.has(block.id)) continue
     try {
-      const kids = await fetchAllChildren(block.id)
+      const kids = await fetchAllChildren(block.id, token)
       map.set(block.id, kids)
       if (depth < 2) {
         for (const k of kids) {
@@ -351,22 +504,24 @@ async function prefetchNestedChildren(
         }
       }
     } catch (e) {
-      console.warn(`[v0] prefetch nested children failed for ${block.id}:`, e)
+      console.warn(`[v0] prefetch failed for ${block.id}:`, e)
     }
   }
   return map
 }
 
-/** Query a Notion database and render its rows as a markdown table. */
-async function fetchDatabaseMarkdown(databaseId: string, title: string): Promise<string> {
+async function fetchDatabaseMarkdown(
+  databaseId: string,
+  title: string,
+  token?: string | null,
+): Promise<string> {
   try {
     const res = await notionFetch<{ results: NotionPage[] }>(
       `/databases/${databaseId}/query`,
       { method: "POST", body: { page_size: 25 } },
+      token,
     )
     if (!res.results.length) return ""
-
-    // Determine columns from the first row's properties
     const first = res.results[0]
     const propEntries = Object.entries(first.properties ?? {})
     const columns = propEntries.map(([name]) => name).slice(0, 6)
@@ -383,7 +538,6 @@ async function fetchDatabaseMarkdown(databaseId: string, title: string): Promise
         return `| ${cells.join(" | ")} |`
       })
       .join("\n")
-
     return `${header}\n${sep}\n${rows}`
   } catch (err) {
     console.warn(`[v0] Failed to query database ${databaseId} (${title}):`, err)
@@ -395,54 +549,36 @@ async function fetchDatabaseMarkdown(databaseId: string, title: string): Promise
 function propValueToString(prop: any): string {
   if (!prop) return ""
   switch (prop.type) {
-    case "title":
-      return richTextToPlain(prop.title)
-    case "rich_text":
-      return richTextToPlain(prop.rich_text)
-    case "select":
-      return prop.select?.name ?? ""
-    case "status":
-      return prop.status?.name ?? ""
-    case "multi_select":
-      return (prop.multi_select ?? []).map((s: { name: string }) => s.name).join(", ")
-    case "number":
-      return prop.number != null ? String(prop.number) : ""
-    case "checkbox":
-      return prop.checkbox ? "✓" : ""
-    case "date":
-      return prop.date?.start ?? ""
-    case "people":
-      return (prop.people ?? []).map((p: { name?: string }) => p.name ?? "").join(", ")
-    case "url":
-      return prop.url ?? ""
-    case "email":
-      return prop.email ?? ""
-    case "phone_number":
-      return prop.phone_number ?? ""
-    case "files":
-      return (prop.files ?? []).map((f: { name?: string }) => f.name ?? "").join(", ")
-    case "formula":
-      return prop.formula?.string ?? prop.formula?.number?.toString() ?? ""
-    case "relation":
-      return (prop.relation ?? []).length + " linked"
-    default:
-      return ""
+    case "title": return richTextToPlain(prop.title)
+    case "rich_text": return richTextToPlain(prop.rich_text)
+    case "select": return prop.select?.name ?? ""
+    case "status": return prop.status?.name ?? ""
+    case "multi_select": return (prop.multi_select ?? []).map((s: { name: string }) => s.name).join(", ")
+    case "number": return prop.number != null ? String(prop.number) : ""
+    case "checkbox": return prop.checkbox ? "✓" : ""
+    case "date": return prop.date?.start ?? ""
+    case "people": return (prop.people ?? []).map((p: { name?: string }) => p.name ?? "").join(", ")
+    case "url": return prop.url ?? ""
+    case "email": return prop.email ?? ""
+    case "phone_number": return prop.phone_number ?? ""
+    case "files": return (prop.files ?? []).map((f: { name?: string }) => f.name ?? "").join(", ")
+    case "formula": return prop.formula?.string ?? prop.formula?.number?.toString() ?? ""
+    case "relation": return (prop.relation ?? []).length + " linked"
+    default: return ""
   }
 }
 
-// ── Subgraph builder ────────────────────────────────────────────────────
+// ── Subgraph ────────────────────────────────────────────────────────────
 
 export function buildSubgraph(seeds: NotionPageMeta[], snap: CachedSnapshot): KnowledgeGraph {
   const included = new Set<string>(seeds.map(s => s.id))
   const adjMap = new Map<string, Set<string>>()
-
   for (const e of snap.edges) {
     if (!adjMap.has(e.from)) adjMap.set(e.from, new Set())
     if (!adjMap.has(e.to)) adjMap.set(e.to, new Set())
     adjMap.get(e.from)!.add(e.to)
     adjMap.get(e.to)!.add(e.from)
   }
-
   for (const seed of seeds) {
     const neighbors = adjMap.get(seed.id)
     if (!neighbors) continue
@@ -455,11 +591,9 @@ export function buildSubgraph(seeds: NotionPageMeta[], snap: CachedSnapshot): Kn
   const nodes: GraphNode[] = []
   for (const id of included) {
     const meta = snap.pages.get(id)
-    if (meta) nodes.push({ id, label: meta.title, type: meta.type })
+    if (meta) nodes.push({ id, label: meta.title, type: meta.type, cluster: meta.cluster })
   }
-
   const edges = snap.edges.filter(e => included.has(e.from) && included.has(e.to))
-
   return { nodes, edges }
 }
 
@@ -505,10 +639,8 @@ function guessPageType(page: NotionPage): NodeType {
   const props = page.properties
   if (!props) return "page"
   const keys = Object.keys(props).map(k => k.toLowerCase())
-  if (keys.includes("status") || keys.includes("assignee") || keys.includes("due"))
-    return "task"
-  if (keys.includes("tags") || keys.includes("type") || keys.includes("category"))
-    return "note"
+  if (keys.includes("status") || keys.includes("assignee") || keys.includes("due")) return "task"
+  if (keys.includes("tags") || keys.includes("type") || keys.includes("category")) return "note"
   return "page"
 }
 
@@ -521,5 +653,6 @@ function mockSnapshot(): CachedSnapshot {
       type: (node.type as NodeType) || "page",
     })
   }
+  assignClusters(pages)
   return { pages, edges: WORKSPACE_EDGES, fetchedAt: Date.now(), source: "mock", usingMock: true }
 }

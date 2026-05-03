@@ -1,8 +1,13 @@
 const NOTION_BASE = "https://api.notion.com/v1"
 const NOTION_VERSION = "2022-06-28"
 
-export function isNotionConnected(): boolean {
-  return Boolean(process.env.NOTION_API_KEY)
+/**
+ * Token resolution order:
+ *   1. Explicit `token` argument (passed by API routes from cookies)
+ *   2. Server-side `NOTION_API_KEY` env var (legacy / shared default)
+ */
+export function isNotionConnected(token?: string | null): boolean {
+  return Boolean(token || process.env.NOTION_API_KEY)
 }
 
 interface NotionRequestInit {
@@ -12,17 +17,15 @@ interface NotionRequestInit {
 
 /**
  * Tiny, dependency-free wrapper around the Notion REST API.
- * Uses fetch + the official `Notion-Version` header so we don't need
- * the @notionhq/client SDK at runtime.
+ * Pass `token` to use a per-user key (from cookie). Falls back to env.
  */
 export async function notionFetch<T>(
   path: string,
   init: NotionRequestInit = {},
+  token?: string | null,
 ): Promise<T> {
-  const key = process.env.NOTION_API_KEY
-  if (!key) {
-    throw new Error("NOTION_API_KEY is not set")
-  }
+  const key = token ?? process.env.NOTION_API_KEY
+  if (!key) throw new Error("No Notion token: pass one to /connect or set NOTION_API_KEY")
 
   const res = await fetch(`${NOTION_BASE}${path}`, {
     method: init.method ?? "GET",
@@ -42,7 +45,7 @@ export async function notionFetch<T>(
   return (await res.json()) as T
 }
 
-// ── Typed shapes for the small surface we use ─────────────────────────────
+// ── Typed shapes ──────────────────────────────────────────────────────────
 
 export interface NotionRichText {
   plain_text?: string
@@ -137,4 +140,14 @@ export function getPageTitle(page: NotionPage): string {
 
 export function getDatabaseTitle(db: NotionDatabase): string {
   return richTextToPlain(db.title).trim() || "Untitled database"
+}
+
+/** Stable cache key for a token (don't store the raw token). */
+export function tokenKey(token?: string | null): string {
+  const k = token ?? process.env.NOTION_API_KEY ?? ""
+  if (!k) return "none"
+  // Cheap non-crypto hash — enough to namespace caches in-memory.
+  let h = 5381
+  for (let i = 0; i < k.length; i++) h = ((h << 5) + h + k.charCodeAt(i)) | 0
+  return `t_${(h >>> 0).toString(36)}`
 }

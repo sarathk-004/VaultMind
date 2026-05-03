@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { fetchPageContent } from "@/lib/notion-retriever"
+import { getRequestNotionToken } from "@/lib/notion-token"
 
 export async function GET(
   _req: NextRequest,
@@ -7,7 +8,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const content = await fetchPageContent(id)
+    const token = await getRequestNotionToken()
+    const content = await fetchPageContent(id, token)
     if (!content) {
       return NextResponse.json({ error: "Page not found" }, { status: 404 })
     }

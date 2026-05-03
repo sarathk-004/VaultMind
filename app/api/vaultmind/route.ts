@@ -8,6 +8,7 @@ import {
   buildSubgraph,
   fetchPageContent,
 } from "@/lib/notion-retriever"
+import { getRequestNotionToken } from "@/lib/notion-token"
 
 const INTENT_INSTRUCTIONS: Record<Intent, string> = {
   search:
@@ -29,14 +30,22 @@ export async function POST(req: NextRequest) {
     }
 
     const intentKey: Intent = intent ?? "search"
-    console.log("[v0] API: intent=", intentKey, "query=", message.slice(0, 60))
+    const token = await getRequestNotionToken()
+    console.log(
+      "[v0] API: intent=",
+      intentKey,
+      "query=",
+      message.slice(0, 60),
+      "tokenSource=",
+      token ? "user-cookie" : process.env.NOTION_API_KEY ? "env" : "none",
+    )
 
     // 1. Retrieve workspace and rank relevant pages
-    const snap = await getWorkspaceSnapshot()
+    const snap = await getWorkspaceSnapshot(token)
     console.log(
       `[v0] API: snapshot has ${snap.pages.size} pages, ${snap.edges.length} edges, usingMock=${snap.usingMock}`,
     )
-    const topPages = await rankPages(message, snap)
+    const topPages = await rankPages(message, snap, token)
     console.log(
       "[v0] API: ranked",
       topPages.length,
@@ -49,7 +58,7 @@ export async function POST(req: NextRequest) {
 
     // 2. Fetch content for top 3 pages
     const contents = await Promise.all(
-      topPages.slice(0, 3).map(p => fetchPageContent(p.id)),
+      topPages.slice(0, 3).map(p => fetchPageContent(p.id, token)),
     )
     const validContents = contents.filter((c): c is NonNullable<typeof c> => c !== null)
     console.log("[v0] API: fetched content for", validContents.length, "pages")

@@ -1,6 +1,6 @@
 "use client"
 
-import { BrainCircuit, MessageSquare, Plus, Settings, HelpCircle } from "lucide-react"
+import { BrainCircuit, MessageSquare, Plus, Settings, Plug } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { ChatHistoryItem } from "@/lib/vaultmind-types"
@@ -11,7 +11,8 @@ interface SidebarProps {
   onSelectChat: (id: string) => void
   onNewChat: () => void
   onOpenSettings: () => void
-  onOpenHelp: () => void
+  /** Open the "Connect Notion" dialog (BYO token). */
+  onOpenConnect: () => void
   workspaceLabel?: string
   workspaceConnected?: boolean
 }
@@ -22,7 +23,7 @@ export function Sidebar({
   onSelectChat,
   onNewChat,
   onOpenSettings,
-  onOpenHelp,
+  onOpenConnect,
   workspaceLabel = "Notion Workspace",
   workspaceConnected = true,
 }: SidebarProps) {
@@ -45,7 +46,7 @@ export function Sidebar({
           Connected Workspace
         </div>
         <button
-          onClick={onOpenHelp}
+          onClick={onOpenConnect}
           className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border hover:bg-accent/50 transition-colors"
         >
           <span
@@ -53,19 +54,17 @@ export function Sidebar({
               "h-2 w-2 rounded-full",
               workspaceConnected
                 ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
-                : "bg-muted-foreground/40",
+                : "bg-amber-500/70",
             )}
             aria-hidden
           />
           <div className="flex flex-col leading-tight min-w-0 text-left">
             <span className="text-xs font-medium truncate">{workspaceLabel}</span>
             <span className="text-[10px] text-muted-foreground">
-              {workspaceConnected ? "MCP linked · live" : "Click for help"}
+              {workspaceConnected ? "Live · click to manage" : "Click to connect"}
             </span>
           </div>
-          {!workspaceConnected && (
-            <HelpCircle className="h-3.5 w-3.5 text-amber-500 ml-auto shrink-0" aria-hidden />
-          )}
+          <Plug className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" aria-hidden />
         </button>
       </div>
 
@@ -141,11 +140,11 @@ export function Sidebar({
           variant="ghost"
           size="icon"
           className="h-8 w-8 shrink-0"
-          aria-label="Help"
-          onClick={onOpenHelp}
-          title="Connection help"
+          aria-label="Connect Notion"
+          onClick={onOpenConnect}
+          title="Connect Notion workspace"
         >
-          <HelpCircle className="h-3.5 w-3.5" />
+          <Plug className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"

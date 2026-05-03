@@ -6,7 +6,7 @@ import { ChatPanel } from "@/components/vaultmind/chat-panel"
 import { KnowledgeGraphPanel } from "@/components/vaultmind/knowledge-graph"
 import { CitationDrawer } from "@/components/vaultmind/citation-drawer"
 import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
-import { HelpDialog } from "@/components/vaultmind/help-dialog"
+import { ConnectDialog } from "@/components/vaultmind/connect-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import type {
   ChatHistoryItem,
@@ -65,30 +65,26 @@ export default function VaultMindPage() {
     connected: false,
   })
 
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/vaultmind/workspace")
-      .then(async res => {
-        if (!res.ok) throw new Error(`Status ${res.status}`)
-        return res.json()
+  const reloadWorkspace = useCallback(async () => {
+    setWorkspace(prev => ({ ...prev, loading: true }))
+    try {
+      const res = await fetch("/api/vaultmind/workspace", { cache: "no-store" })
+      if (!res.ok) throw new Error(`Status ${res.status}`)
+      const data = await res.json()
+      setWorkspace({
+        graph: data.graph,
+        loading: false,
+        connected: Boolean(data.connected),
       })
-      .then(data => {
-        if (cancelled) return
-        setWorkspace({
-          graph: data.graph,
-          loading: false,
-          connected: Boolean(data.connected),
-        })
-      })
-      .catch(err => {
-        if (cancelled) return
-        console.error("[v0] Failed to load workspace:", err)
-        setWorkspace({ graph: null, loading: false, connected: false })
-      })
-    return () => {
-      cancelled = true
+    } catch (err) {
+      console.error("[v0] Failed to load workspace:", err)
+      setWorkspace({ graph: null, loading: false, connected: false })
     }
   }, [])
+
+  useEffect(() => {
+    void reloadWorkspace()
+  }, [reloadWorkspace])
 
   // ── Conversations ────────────────────────────────────────────────────────
   const [history, setHistory] = useState<ChatHistoryItem[]>(SEED_HISTORY)
@@ -123,7 +119,7 @@ export default function VaultMindPage() {
   const [citationNodeId, setCitationNodeId] = useState<string | null>(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [helpOpen, setHelpOpen] = useState(false)
+  const [connectOpen, setConnectOpen] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
 
@@ -343,7 +339,7 @@ export default function VaultMindPage() {
           onSelectChat={handleSelectChat}
           onNewChat={handleNewChat}
           onOpenSettings={() => setSettingsOpen(true)}
-          onOpenHelp={() => setHelpOpen(true)}
+          onOpenConnect={() => setConnectOpen(true)}
           workspaceConnected={workspace.connected}
           workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
         />
@@ -364,8 +360,8 @@ export default function VaultMindPage() {
               setSettingsOpen(true)
               setMobileSidebarOpen(false)
             }}
-            onOpenHelp={() => {
-              setHelpOpen(true)
+            onOpenConnect={() => {
+              setConnectOpen(true)
               setMobileSidebarOpen(false)
             }}
             workspaceConnected={workspace.connected}
@@ -450,11 +446,11 @@ export default function VaultMindPage() {
         workspaceConnected={workspace.connected}
       />
 
-      {/* Help dialog */}
-      <HelpDialog
-        open={helpOpen}
-        onOpenChange={setHelpOpen}
-        workspaceConnected={workspace.connected}
+      {/* Connect dialog — bring-your-own Notion token */}
+      <ConnectDialog
+        open={connectOpen}
+        onOpenChange={setConnectOpen}
+        onConnectionChange={() => void reloadWorkspace()}
       />
     </main>
   )

@@ -9,16 +9,16 @@ interface SimNode {
   id: string
   label: string
   type?: string
+  cluster?: string
   x: number
   y: number
   vx: number
   vy: number
-  pinned?: boolean
 }
 
 const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
-const MIN_SEPARATION = 180 // Minimum distance between node centers
+const MIN_SEPARATION = 180
 const COLLISION_PADDING = 30
 
 function seededRandom(seed: string) {
@@ -34,12 +34,14 @@ function seededRandom(seed: string) {
 }
 
 /**
- * Multi-pass force-directed layout with aggressive collision detection.
- * - Initial: spread nodes in a grid + random offset
- * - Pass 1: Strong repulsion to push apart
- * - Pass 2: Collision resolution (rectangle overlaps)
- * - Pass 3: Spring attraction along edges
- * - Iterations: 500+ with gradual cooling
+ * Force-directed layout with cluster-aware grouping.
+ *
+ *   - Initial: nodes sharing a cluster start near a shared anchor point on a
+ *     ring around the canvas, so groups land in different regions.
+ *   - Repulsion: pair-wise within a min-separation radius.
+ *   - Cluster gravity: each node is pulled toward its cluster centroid (mild).
+ *   - Edges: spring forces along graph edges.
+ *   - Collision pass: rectangle overlap resolution.
  */
 export function simulateLayout(
   nodes: GraphNode[],
@@ -55,47 +57,72 @@ export function simulateLayout(
 
   const cx = width / 2
   const cy = height / 2
-  const padding = 80
 
-  // 1. Initialize in a grid-like pattern with random jitter
-  const sim: SimNode[] = []
-  const cols = Math.ceil(Math.sqrt(nodes.length))
-  const cellW = (width - 2 * padding) / cols
-  const cellH = (height - 2 * padding) / cols
+  // Cluster anchors arranged on a ring so groups don't all collapse to center.
+  const clusterIds = Array.from(new Set(nodes.map(n => n.cluster ?? n.id)))
+  const ringRadius = Math.min(width, height) * 0.32
+  const anchors = new Map<string, { x: number; y: number }>()
+  clusterIds.forEach((c, i) => {
+    if (clusterIds.length === 1) {
+      anchors.set(c, { x: cx, y: cy })
+      return
+    }
+    const angle = (i / clusterIds.length) * Math.PI * 2
+    anchors.set(c, {
+      x: cx + Math.cos(angle) * ringRadius,
+      y: cy + Math.sin(angle) * ringRadius,
+    })
+  })
 
-  for (let i = 0; i < nodes.length; i++) {
-    const row = Math.floor(i / cols)
-    const col = i % cols
-    const baseX = padding + col * cellW + cellW / 2
-    const baseY = padding + row * cellH + cellH / 2
-    const jitterX = (rand() - 0.5) * (cellW * 0.6)
-    const jitterY = (rand() - 0.5) * (cellH * 0.6)
-    
-    sim.push({
-      id: nodes[i].id,
-      label: nodes[i].label,
-      type: nodes[i].type,
-      x: baseX + jitterX,
-      y: baseY + jitterY,
+  const sim: SimNode[] = nodes.map(n => {
+    const cluster = n.cluster ?? n.id
+    const a = anchors.get(cluster)!
+    const localR = 80 + rand() * 60
+    const localAngle = rand() * Math.PI * 2
+    return {
+      id: n.id,
+      label: n.label,
+      type: n.type,
+      cluster,
+      x: a.x + Math.cos(localAngle) * localR,
+      y: a.y + Math.sin(localAngle) * localR,
       vx: 0,
       vy: 0,
-    })
-  }
+    }
+  })
 
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
   const repulsionStrength = 25000
   const springStrength = 0.08
-  const centerStrength = 0.004
+  const centerStrength = 0.003
+  const clusterStrength = 0.012
   const damping = 0.82
 
-  // 2. Run simulation with cooling
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
     const cooling = 1 - progress * 0.6
 
-    // Global repulsion (pair-wise)
+    // Recompute cluster centroids (so groups stay coherent as they drift)
+    const centroids = new Map<string, { x: number; y: number; n: number }>()
+    for (const n of sim) {
+      const c = n.cluster ?? n.id
+      const cur = centroids.get(c)
+      if (cur) {
+        cur.x += n.x
+        cur.y += n.y
+        cur.n++
+      } else {
+        centroids.set(c, { x: n.x, y: n.y, n: 1 })
+      }
+    }
+    for (const v of centroids.values()) {
+      v.x /= v.n
+      v.y /= v.n
+    }
+
+    // Pair-wise repulsion
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -103,18 +130,13 @@ export function simulateLayout(
         let dx = b.x - a.x
         let dy = b.y - a.y
         let distSq = dx * dx + dy * dy
-        
         if (distSq < 100) {
           dx = (rand() - 0.5) * 2
           dy = (rand() - 0.5) * 2
           distSq = 1
         }
-
         const dist = Math.sqrt(distSq)
-        const minDist = MIN_SEPARATION
-        
-        // Use a min distance: repel if closer than minDist
-        if (dist < minDist) {
+        if (dist < MIN_SEPARATION) {
           const force = (repulsionStrength / (distSq + 100)) * cooling
           const fx = (dx / dist) * force
           const fy = (dy / dist) * force
@@ -126,29 +148,25 @@ export function simulateLayout(
       }
     }
 
-    // Collision detection with rectangle overlap resolution
+    // Rectangle collision resolution
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
         const b = sim[j]
         const dx = b.x - a.x
         const dy = b.y - a.y
-        
         const halfW = NODE_WIDTH / 2 + COLLISION_PADDING / 2
         const halfH = NODE_HEIGHT / 2 + COLLISION_PADDING / 2
         const overlapX = halfW - Math.abs(dx)
         const overlapY = halfH - Math.abs(dy)
-
         if (overlapX > 0 && overlapY > 0) {
           const pushStrength = 3.5 * cooling
           if (overlapX < overlapY) {
-            // Push along X axis
             const push = overlapX * pushStrength
             const dir = Math.sign(dx) || 1
             a.vx -= push * dir
             b.vx += push * dir
           } else {
-            // Push along Y axis
             const push = overlapY * pushStrength
             const dir = Math.sign(dy) || 1
             a.vy -= push * dir
@@ -158,8 +176,8 @@ export function simulateLayout(
       }
     }
 
-    // Spring attraction along edges (with cooling)
-    const edgeLength = Math.min(width, height) * 0.25
+    // Spring attraction along edges
+    const edgeLength = Math.min(width, height) * 0.18
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
@@ -176,8 +194,13 @@ export function simulateLayout(
       b.vy -= fy
     }
 
-    // Center attraction + integrate velocity + apply damping
+    // Cluster gravity + global center + integrate
     for (const n of sim) {
+      const c = centroids.get(n.cluster ?? n.id)
+      if (c) {
+        n.vx += (c.x - n.x) * clusterStrength
+        n.vy += (c.y - n.y) * clusterStrength
+      }
       n.vx += (cx - n.x) * centerStrength
       n.vy += (cy - n.y) * centerStrength
       n.vx *= damping
@@ -185,7 +208,6 @@ export function simulateLayout(
       n.x += n.vx
       n.y += n.vy
 
-      // Enforce bounds with generous padding
       const boundPadding = NODE_WIDTH / 2 + 50
       n.x = Math.max(boundPadding, Math.min(width - boundPadding, n.x))
       n.y = Math.max(boundPadding, Math.min(height - boundPadding, n.y))
@@ -196,6 +218,7 @@ export function simulateLayout(
     id: n.id,
     label: n.label,
     type: n.type,
+    cluster: n.cluster,
     x: n.x,
     y: n.y,
   }))
