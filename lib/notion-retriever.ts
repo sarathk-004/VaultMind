@@ -83,8 +83,24 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     let cursor: string | undefined
     let safetyCount = 0
 
+    // Stats so the user can see exactly what was filtered and why.
+    const stats = {
+      raw: 0,
+      databases: 0,
+      databaseRows: 0,
+      blockChildren: 0,
+      untitled: 0,
+      kept: 0,
+    }
+
     do {
-      const body: Record<string, unknown> = { page_size: 100 }
+      const body: Record<string, unknown> = {
+        page_size: 100,
+        // Ask Notion for pages only — drops every `database` object at the
+        // source. Database *rows* still come through (they're "page" objects
+        // with parent.type === "database_id") and are filtered below.
+        filter: { value: "page", property: "object" },
+      }
       if (cursor) body.start_cursor = cursor
       const res = await notionFetch<NotionSearchResponse>(
         "/search",
@@ -93,13 +109,42 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       )
 
       for (const item of res.results) {
+        stats.raw++
+        if (item.object === "database") {
+          stats.databases++
+          continue
+        }
+        const page = item as NotionPage
+        const parentType = page.parent?.type
+        if (parentType === "database_id") {
+          stats.databaseRows++
+          continue
+        }
+        if (parentType === "block_id") {
+          stats.blockChildren++
+          continue
+        }
+        const title = getPageTitle(page).trim()
+        if (!title || title.toLowerCase() === "untitled") {
+          stats.untitled++
+          continue
+        }
         const meta = parseSearchResult(item)
-        if (meta) pages.set(meta.id, meta)
+        if (meta) {
+          stats.kept++
+          pages.set(meta.id, meta)
+        }
       }
 
       cursor = res.next_cursor ?? undefined
       safetyCount++
     } while (cursor && safetyCount < 10)
+
+    console.log(
+      `[v0] Notion filter stats: raw=${stats.raw} → kept=${stats.kept} ` +
+        `(skipped: databases=${stats.databases}, dbRows=${stats.databaseRows}, ` +
+        `blockChildren=${stats.blockChildren}, untitled=${stats.untitled})`,
+    )
 
     if (pages.size === 0) {
       console.log("[v0] Notion returned 0 pages — falling back to mock workspace")

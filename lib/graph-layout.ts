@@ -20,8 +20,8 @@ const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
 // Repulsion only kicks in within this radius — keeps clusters tight while
 // preventing label overlap.
-const MIN_SEPARATION = 170
-const COLLISION_PADDING = 30
+const MIN_SEPARATION = 150
+const COLLISION_PADDING = 24
 
 function seededRandom(seed: string) {
   let h = 0
@@ -120,14 +120,17 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // Springs dominate over repulsion at typical inter-node distances so
-  // connected pages settle close together. Strong cluster gravity keeps
-  // members of a connected component visually tight.
-  const repulsionStrength = 12000
-  const springStrength = 0.3
-  const centerStrength = 0.0012
-  const clusterStrength = 0.05
+  // Springs and cluster gravity dominate over repulsion so members of the
+  // same connected component pull together into tight, readable groups.
+  const repulsionStrength = 7000
+  const springStrength = 0.45
+  const centerStrength = 0.001
+  const clusterStrength = 0.14
   const damping = 0.82
+  // Extra "soft spring" between any two same-cluster nodes (even with no
+  // direct edge) so connected components remain visually compact rather
+  // than relying on the centroid pull alone.
+  const sameClusterAttraction = 0.012
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
@@ -151,7 +154,7 @@ export function simulateLayout(
       v.y /= v.n
     }
 
-    // Pair-wise repulsion
+    // Pair-wise repulsion + same-cluster attraction.
     for (let i = 0; i < sim.length; i++) {
       for (let j = i + 1; j < sim.length; j++) {
         const a = sim[i]
@@ -165,14 +168,27 @@ export function simulateLayout(
           distSq = 1
         }
         const dist = Math.sqrt(distSq)
+        const sameCluster = a.cluster === b.cluster
         if (dist < MIN_SEPARATION) {
-          const force = (repulsionStrength / (distSq + 100)) * cooling
+          // Same-cluster repulsion is gentler so siblings sit close.
+          const strength = sameCluster ? repulsionStrength * 0.45 : repulsionStrength
+          const force = (strength / (distSq + 100)) * cooling
           const fx = (dx / dist) * force
           const fy = (dy / dist) * force
           a.vx -= fx
           a.vy -= fy
           b.vx += fx
           b.vy += fy
+        }
+        // Soft mutual pull between same-cluster nodes (regardless of edges)
+        // so a connected component stays a tight visual group.
+        if (sameCluster && dist > 80) {
+          const fx = (dx / dist) * dist * sameClusterAttraction * cooling
+          const fy = (dy / dist) * dist * sameClusterAttraction * cooling
+          a.vx += fx
+          a.vy += fy
+          b.vx -= fx
+          b.vy -= fy
         }
       }
     }
@@ -209,7 +225,7 @@ export function simulateLayout(
     // Fixed pixel length (independent of canvas size) — keeps linked pages
     // a consistent, readable distance apart regardless of how big the
     // virtual canvas grows for large workspaces.
-    const edgeLength = 155
+    const edgeLength = 130
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
