@@ -1,6 +1,6 @@
 "use client"
 
-import { BrainCircuit, MessageSquare, Plus, Settings } from "lucide-react"
+import { BrainCircuit, MessageSquare, Plus, Settings, HelpCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { ChatHistoryItem } from "@/lib/vaultmind-types"
@@ -11,6 +11,7 @@ interface SidebarProps {
   onSelectChat: (id: string) => void
   onNewChat: () => void
   onOpenSettings: () => void
+  onOpenHelp: () => void
   workspaceLabel?: string
   workspaceConnected?: boolean
 }
@@ -21,6 +22,7 @@ export function Sidebar({
   onSelectChat,
   onNewChat,
   onOpenSettings,
+  onOpenHelp,
   workspaceLabel = "Notion Workspace",
   workspaceConnected = true,
 }: SidebarProps) {
@@ -42,7 +44,10 @@ export function Sidebar({
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
           Connected Workspace
         </div>
-        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border">
+        <button
+          onClick={onOpenHelp}
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border hover:bg-accent/50 transition-colors"
+        >
           <span
             className={cn(
               "h-2 w-2 rounded-full",
@@ -52,13 +57,16 @@ export function Sidebar({
             )}
             aria-hidden
           />
-          <div className="flex flex-col leading-tight min-w-0">
+          <div className="flex flex-col leading-tight min-w-0 text-left">
             <span className="text-xs font-medium truncate">{workspaceLabel}</span>
             <span className="text-[10px] text-muted-foreground">
-              {workspaceConnected ? "MCP linked · live" : "Disconnected"}
+              {workspaceConnected ? "MCP linked · live" : "Click for help"}
             </span>
           </div>
-        </div>
+          {!workspaceConnected && (
+            <HelpCircle className="h-3.5 w-3.5 text-amber-500 ml-auto shrink-0" aria-hidden />
+          )}
+        </button>
       </div>
 
       {/* Chat history */}
@@ -128,6 +136,16 @@ export function Sidebar({
         >
           <Plus className="h-3.5 w-3.5" />
           New chat
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          aria-label="Help"
+          onClick={onOpenHelp}
+          title="Connection help"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"

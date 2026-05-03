@@ -33,9 +33,9 @@ export async function POST(req: NextRequest) {
 
     // 1. Retrieve workspace and rank relevant pages
     const snap = await getWorkspaceSnapshot()
-    console.log("[v0] API: workspace snapshot has", snap.nodes.length, "nodes,", snap.edges.length, "edges")
+    console.log("[v0] API: workspace snapshot has", snap.nodes?.length || 0, "nodes,", snap.edges?.length || 0, "edges, usingMock=", snap.usingMock)
     const topPages = rankPages(message, snap)
-    console.log("[v0] API: ranked", topPages.length, "pages")
+    console.log("[v0] API: ranked", topPages.length, "pages, top 3:", topPages.slice(0, 3).map(p => p.title).join(" | "))
 
     // 2. Fetch content for top 3 pages
     const contents = await Promise.all(

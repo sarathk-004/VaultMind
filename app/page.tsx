@@ -6,6 +6,7 @@ import { ChatPanel } from "@/components/vaultmind/chat-panel"
 import { KnowledgeGraphPanel } from "@/components/vaultmind/knowledge-graph"
 import { CitationDrawer } from "@/components/vaultmind/citation-drawer"
 import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
+import { HelpDialog } from "@/components/vaultmind/help-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import type {
   ChatHistoryItem,
@@ -122,6 +123,7 @@ export default function VaultMindPage() {
   const [citationNodeId, setCitationNodeId] = useState<string | null>(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
 
@@ -341,6 +343,7 @@ export default function VaultMindPage() {
           onSelectChat={handleSelectChat}
           onNewChat={handleNewChat}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenHelp={() => setHelpOpen(true)}
           workspaceConnected={workspace.connected}
           workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
         />
@@ -359,6 +362,10 @@ export default function VaultMindPage() {
             onNewChat={handleNewChat}
             onOpenSettings={() => {
               setSettingsOpen(true)
+              setMobileSidebarOpen(false)
+            }}
+            onOpenHelp={() => {
+              setHelpOpen(true)
               setMobileSidebarOpen(false)
             }}
             workspaceConnected={workspace.connected}
@@ -440,6 +447,13 @@ export default function VaultMindPage() {
         graphMotion={graphMotion}
         onGraphMotionChange={setGraphMotion}
         workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+        workspaceConnected={workspace.connected}
+      />
+
+      {/* Help dialog */}
+      <HelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
         workspaceConnected={workspace.connected}
       />
     </main>
