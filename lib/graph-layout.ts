@@ -46,40 +46,6 @@ function seededRandom(seed: string) {
  *   - Collision pass: rectangle overlap resolution.
  */
 // Add this helper function above simulateLayout
-function getConnectedComponents(nodes: GraphNode[], validEdges: GraphEdge[]): Map<string, string> {
-  const adj = new Map<string, string[]>()
-  nodes.forEach(n => adj.set(n.id, []))
-  validEdges.forEach(e => {
-    if (adj.has(e.from) && adj.has(e.to)) {
-      adj.get(e.from)!.push(e.to)
-      adj.get(e.to)!.push(e.from)
-    }
-  })
-
-  const visited = new Set<string>()
-  const nodeToComponent = new Map<string, string>()
-  let compId = 0
-
-  for (const node of nodes) {
-    if (!visited.has(node.id)) {
-      const cName = `island_${compId++}`
-      const queue = [node.id]
-      visited.add(node.id)
-      
-      while (queue.length > 0) {
-        const curr = queue.shift()!
-        nodeToComponent.set(curr, cName)
-        for (const neighbor of adj.get(curr)!) {
-          if (!visited.has(neighbor)) {
-            visited.add(neighbor)
-            queue.push(neighbor)
-          }
-        }
-      }
-    }
-  }
-  return nodeToComponent
-}
 
 export function simulateLayout(
   nodes: GraphNode[],
