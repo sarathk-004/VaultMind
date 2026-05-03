@@ -29,16 +29,20 @@ export async function POST(req: NextRequest) {
     }
 
     const intentKey = intent ?? "search"
+    console.log("[v0] API: intent=", intentKey, "query=", message.slice(0, 60))
 
     // 1. Retrieve workspace and rank relevant pages
     const snap = await getWorkspaceSnapshot()
+    console.log("[v0] API: workspace snapshot has", snap.nodes.length, "nodes,", snap.edges.length, "edges")
     const topPages = rankPages(message, snap)
+    console.log("[v0] API: ranked", topPages.length, "pages")
 
     // 2. Fetch content for top 3 pages
     const contents = await Promise.all(
       topPages.slice(0, 3).map(p => fetchPageContent(p.id)),
     )
     const validContents = contents.filter((c): c is NonNullable<typeof c> => c !== null)
+    console.log("[v0] API: fetched content for", validContents.length, "pages")
 
     // 3. Build focused subgraph
     const graph = buildSubgraph(topPages, snap)

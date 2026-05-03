@@ -25,6 +25,7 @@ interface CachedSnapshot {
   edges: GraphEdge[]
   fetchedAt: number
   source: "notion" | "mock"
+  usingMock: boolean
 }
 
 interface CachedPageContent {
@@ -78,7 +79,9 @@ export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
     if (pages.size === 0) {
       // No pages shared with the integration — fall back so the UI isn't empty.
       console.log("[v0] Notion returned 0 pages — falling back to mock workspace")
-      return mockSnapshot()
+      const mockSnap = mockSnapshot()
+      mockSnap.usingMock = true
+      return mockSnap
     }
 
     // Build parent-child edges
@@ -89,12 +92,14 @@ export async function getWorkspaceSnapshot(): Promise<CachedSnapshot> {
       }
     }
 
-    snapshot = { pages, edges, fetchedAt: now, source: "notion" }
+    snapshot = { pages, edges, fetchedAt: now, source: "notion", usingMock: false }
     console.log(`[v0] Fetched Notion workspace: ${pages.size} items, ${edges.length} edges`)
     return snapshot
   } catch (err) {
     console.error("[v0] Failed to fetch Notion workspace, falling back to mock data:", err)
-    return mockSnapshot()
+    const mockSnap = mockSnapshot()
+    mockSnap.usingMock = true
+    return mockSnap
   }
 }
 
@@ -153,6 +158,12 @@ export async function fetchPageContent(pageId: string): Promise<NoteContent | nu
 
   try {
     const snap = await getWorkspaceSnapshot()
+    
+    // If we're using mock data, don't try to fetch from Notion
+    if (snap.usingMock) {
+      return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
+    }
+    
     const meta = snap.pages.get(cleanId) ?? snap.pages.get(pageId)
     if (!meta) {
       return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
@@ -311,5 +322,5 @@ function mockSnapshot(): CachedSnapshot {
       type: (node.type as NodeType) || "page",
     })
   }
-  return { pages, edges: WORKSPACE_EDGES, fetchedAt: Date.now(), source: "mock" }
+  return { pages, edges: WORKSPACE_EDGES, fetchedAt: Date.now(), source: "mock", usingMock: true }
 }
