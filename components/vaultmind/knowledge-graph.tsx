@@ -117,13 +117,20 @@ function GraphCanvas({
     return focusedGraph ?? null
   }, [showFullGraph, workspaceGraph, focusedGraph])
 
-  // Use a much larger virtual canvas when rendering the full vault so nodes have room to breathe
+  // Layout coordinate space is *independent* of the viewport — pan/zoom adapts
+  // it to whatever panel size we have. This way the side panel and fullscreen
+  // render the exact same physical layout, just at different zoom levels.
   const virtualSize = useMemo(() => {
     const n = renderGraph?.nodes.length ?? 0
-    if (n <= 12) return { w: size.width, h: size.height }
-    const scale = Math.min(2.4, 1 + Math.sqrt(n / 12) * 0.4)
-    return { w: size.width * scale, h: size.height * scale }
-  }, [renderGraph, size])
+    if (n === 0) return { w: 1200, h: 800 }
+    // Target ~270px of breathing room per node (matches MIN_SEPARATION in graph-layout).
+    const PER_NODE_AREA = 270 * 270
+    const totalArea = n * PER_NODE_AREA
+    const side = Math.sqrt(totalArea) * 1.45
+    const h = Math.max(700, side)
+    // Slightly wider than tall reads better for force-directed graphs.
+    return { w: h * 1.4, h }
+  }, [renderGraph])
 
   const positionedNodes: PositionedNode[] = useMemo(() => {
     if (!renderGraph) return []
