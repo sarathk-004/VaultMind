@@ -20,7 +20,7 @@ const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
 // Wider repulsion radius so unrelated nodes have visible breathing room.
 // Edges are what bring linked pages back together.
-const MIN_SEPARATION = 220
+const MIN_SEPARATION = 300
 const COLLISION_PADDING = 36
 
 function seededRandom(seed: string) {
@@ -124,14 +124,14 @@ export function simulateLayout(
   // afford strong repulsion (spread-out look) while springs keep linked
   // pages together. Cluster gravity is light — just enough to seed a region
   // for each connected component, not pull it into a tight blob.
-  const repulsionStrength = 22000
-  const springStrength = 0.4
+  const repulsionStrength = 45000
+  const springStrength = 0.15
   const centerStrength = 0.0008
   const clusterStrength = 0.025
-  const damping = 0.82
+  const damping = 0.78
   // Very mild soft pull between same-cluster nodes (handles the case where
   // a component has only 1-2 edges so members would otherwise drift apart).
-  const sameClusterAttraction = 0.003
+  const sameClusterAttraction = 0.001
 
   for (let iter = 0; iter < iterations; iter++) {
     const progress = iter / iterations
@@ -226,7 +226,7 @@ export function simulateLayout(
     // Fixed pixel length (independent of canvas size) — keeps linked pages
     // a consistent, readable distance apart regardless of how big the
     // virtual canvas grows for large workspaces.
-    const edgeLength = 165
+    const edgeLength = 200
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
