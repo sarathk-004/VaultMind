@@ -250,8 +250,11 @@ export function simulateLayout(
     }
 
     // 4. Gravity & Integration
+    // 4. Gravity & Integration
     for (const n of sim) {
-      const anchor = anchors.get(n.cluster)!
+      // Add the ! after n.cluster to satisfy strict TypeScript rules
+      const anchor = anchors.get(n.cluster!)! 
+      
       n.vx += (anchor.x - n.x) * clusterStrength * cooling 
       n.vy += (anchor.y - n.y) * clusterStrength * cooling
       
