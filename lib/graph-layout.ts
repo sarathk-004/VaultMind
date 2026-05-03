@@ -201,7 +201,7 @@ export function simulateLayout(
     }
 
     // 3. Springs (Pull together)
-    const edgeLength = 100
+    const edgeLength = 220
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]
