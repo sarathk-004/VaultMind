@@ -120,7 +120,7 @@ export function simulateLayout(
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
   // Rebalanced physics: high repulsion, gentle springs, weak gravity
-  const repulsionStrength = 20000 
+  const repulsionStrength = 40000 
   const springStrength = 0.20 
   const centerStrength = 0.0005
   const clusterStrength = 0.005
