@@ -4,14 +4,16 @@ import { isNotionConnected } from "@/lib/notion-client"
 
 export async function GET() {
   try {
-    console.log("[v0] Workspace: isNotionConnected=", isNotionConnected())
     const snap = await getWorkspaceSnapshot()
-    console.log("[v0] Workspace: snapshot=", snap.nodes.length, "nodes,", snap.edges.length, "edges,", snap.pages.length, "pages")
     const graph = snapshotToGraph(snap)
-    console.log("[v0] Workspace: graph=", graph.nodes.length, "nodes,", graph.edges.length, "edges")
+    console.log(
+      `[v0] Workspace endpoint: pages=${snap.pages.size}, edges=${snap.edges.length}, ` +
+        `graph nodes=${graph.nodes.length}, graph edges=${graph.edges.length}, ` +
+        `connected=${isNotionConnected()}, usingMock=${snap.usingMock}`,
+    )
     return NextResponse.json({
       graph,
-      connected: isNotionConnected(),
+      connected: isNotionConnected() && !snap.usingMock,
       fetchedAt: snap.fetchedAt,
     })
   } catch (error) {
