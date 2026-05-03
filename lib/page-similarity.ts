@@ -224,6 +224,7 @@ export function buildSemanticEdges(
     const vec = new Map<string, number>()
     let normSq = 0
     for (const [term, count] of tf) {
+      const dfc = df.get(term) ?? 1 // FIXED: Restored missing variable
       if (dfc / N > 0.85) continue
       const idf = Math.log((N + 1) / (dfc + 1)) + 1
       const tfidf = (1 + Math.log(count)) * idf
@@ -251,13 +252,15 @@ export function buildSemanticEdges(
   const W_TFIDF = 0.35
 
   for (let i = 0; i < ids.length; i++) {
-    const idA = ids[i]
+    const idA = ids[i]! // FIXED: Added non-null assertion for strict TS
+
     const va = vectors.get(idA)!
     const titleA = titleTokensById.get(idA)!
     const conceptsA = conceptsById.get(idA)!
 
     for (let j = i + 1; j < ids.length; j++) {
-      const idB = ids[j]
+      const idB = ids[j]! // FIXED: Added non-null assertion for strict TS
+
       const vb = vectors.get(idB)!
       const titleB = titleTokensById.get(idB)!
       const conceptsB = conceptsById.get(idB)!
