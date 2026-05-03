@@ -1,6 +1,6 @@
 "use client"
 
-import { BrainCircuit, Sparkles, Trash2 } from "lucide-react"
+import { BrainCircuit, Menu, Network, Sparkles, Trash2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ChatInput } from "./chat-input"
@@ -22,7 +22,10 @@ interface ChatPanelProps {
   onClear: () => void
   highlightedNodeId: string | null
   onCitationClick: (nodeId: string) => void
+  onCitationOpen: (nodeId: string) => void
   registerCitationRef: (messageId: string, nodeId: string, el: HTMLElement | null) => void
+  onOpenMobileSidebar: () => void
+  onOpenMobileGraph: () => void
 }
 
 export function ChatPanel(props: ChatPanelProps) {
@@ -40,7 +43,10 @@ export function ChatPanel(props: ChatPanelProps) {
     onClear,
     highlightedNodeId,
     onCitationClick,
+    onCitationOpen,
     registerCitationRef,
+    onOpenMobileSidebar,
+    onOpenMobileGraph,
   } = props
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -68,8 +74,19 @@ export function ChatPanel(props: ChatPanelProps) {
   return (
     <section className="flex flex-col h-full flex-1 min-w-0 bg-background">
       {/* Top bar */}
-      <header className="flex items-center justify-between gap-3 px-5 h-14 border-b border-border shrink-0">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <header className="flex items-center justify-between gap-2 px-3 sm:px-5 h-14 border-b border-border shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* Mobile sidebar trigger */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden h-8 w-8 shrink-0"
+            aria-label="Open menu"
+            onClick={onOpenMobileSidebar}
+          >
+            <Menu className="h-4 w-4" />
+          </Button>
+
           {titleEditing ? (
             <input
               autoFocus
@@ -89,33 +106,45 @@ export function ChatPanel(props: ChatPanelProps) {
           ) : (
             <button
               onClick={() => setTitleEditing(true)}
-              className="text-sm font-medium tracking-tight hover:text-muted-foreground transition-colors truncate"
+              className="text-sm font-medium tracking-tight hover:text-muted-foreground transition-colors truncate min-w-0"
               aria-label="Edit chat title"
             >
               {title}
             </button>
           )}
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 shrink-0">
+          <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 shrink-0">
             <Sparkles className="h-2.5 w-2.5" aria-hidden />
             GPT-4o
           </span>
         </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClear}
-          disabled={messages.length === 0 && !loading}
-          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Clear
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            disabled={messages.length === 0 && !loading}
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Clear</span>
+          </Button>
+          {/* Mobile graph trigger */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden h-8 w-8"
+            aria-label="Open knowledge graph"
+            onClick={onOpenMobileGraph}
+          >
+            <Network className="h-4 w-4" />
+          </Button>
+        </div>
       </header>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-5 py-6 flex flex-col gap-6">
+        <div className="max-w-3xl mx-auto px-3 sm:px-5 py-6 flex flex-col gap-6">
           {messages.length === 0 && !loading && <EmptyChatState intent={intent} />}
 
           {messages.map(msg => (
@@ -124,6 +153,7 @@ export function ChatPanel(props: ChatPanelProps) {
               message={msg}
               highlightedNodeId={highlightedNodeId}
               onCitationClick={onCitationClick}
+              onCitationOpen={onCitationOpen}
               registerCitationRef={registerCitationRef}
             />
           ))}
@@ -154,15 +184,15 @@ function EmptyChatState({ intent }: { intent: Intent }) {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center text-center py-16">
+    <div className="flex flex-col items-center justify-center text-center py-10 sm:py-16">
       <div className="h-12 w-12 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
         <BrainCircuit className="h-5 w-5 text-primary" aria-hidden />
       </div>
       <h3 className="text-base font-semibold tracking-tight">Ask anything about your workspace</h3>
-      <p className="text-sm text-muted-foreground mt-1.5 max-w-md text-balance">
+      <p className="text-sm text-muted-foreground mt-1.5 max-w-md text-balance px-4">
         {intentText[intent]} VaultMind queries your Notion vault via MCP and visualizes connections live.
       </p>
-      <div className="mt-6 grid grid-cols-2 gap-2 max-w-md w-full">
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full px-4">
         {SAMPLE_PROMPTS.map(p => (
           <div
             key={p}

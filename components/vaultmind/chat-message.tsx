@@ -10,6 +10,7 @@ interface ChatMessageProps {
   message: ChatMessage
   highlightedNodeId: string | null
   onCitationClick: (nodeId: string) => void
+  onCitationOpen: (nodeId: string) => void
   registerCitationRef: (messageId: string, nodeId: string, el: HTMLElement | null) => void
 }
 
@@ -74,6 +75,7 @@ export function ChatMessageBubble({
   message,
   highlightedNodeId,
   onCitationClick,
+  onCitationOpen,
   registerCitationRef,
 }: ChatMessageProps) {
   const isUser = message.role === "user"
@@ -113,10 +115,13 @@ export function ChatMessageBubble({
                   <button
                     key={node.id}
                     ref={el => registerCitationRef(message.id, node.id, el)}
-                    onClick={() => onCitationClick(node.id)}
+                    onClick={() => {
+                      onCitationClick(node.id)
+                      onCitationOpen(node.id)
+                    }}
                     className={cn(
                       "inline-flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium transition-all",
-                      "hover:scale-[1.02]",
+                      "hover:scale-[1.02] cursor-pointer",
                       active ? "ring-1 ring-offset-1 ring-offset-background" : "",
                     )}
                     style={{
@@ -125,7 +130,7 @@ export function ChatMessageBubble({
                       color: colors.text,
                       ...(active ? { boxShadow: `0 0 0 1px ${colors.stroke}` } : {}),
                     }}
-                    aria-label={`Citation: ${node.label}`}
+                    aria-label={`Open citation: ${node.label}`}
                   >
                     <span
                       className="h-1.5 w-1.5 rounded-full shrink-0"

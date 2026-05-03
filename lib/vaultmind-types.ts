@@ -37,3 +37,19 @@ export interface ChatMessage {
   graph?: KnowledgeGraph
   createdAt: number
 }
+
+export interface ChatHistoryItem {
+  id: string
+  title: string
+  preview: string
+  createdAt: number
+  messages: ChatMessage[]
+}
+
+export interface NoteContent {
+  id: string
+  title: string
+  content: string
+  type: NodeType
+  relatedNodes: string[]
+}

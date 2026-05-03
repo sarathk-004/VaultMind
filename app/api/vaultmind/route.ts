@@ -1,123 +1,274 @@
-import { NextRequest, NextResponse } from "next/server"
-import type { VaultmindRequest, VaultmindResponse, GraphNode, GraphEdge } from "@/lib/vaultmind-types"
+import { type NextRequest, NextResponse } from "next/server"
+import type {
+  VaultmindRequest,
+  VaultmindResponse,
+  GraphNode,
+  GraphEdge,
+  Intent,
+} from "@/lib/vaultmind-types"
+import { WORKSPACE, WORKSPACE_EDGES, ALL_NODE_IDS, NOTE_CONTENT } from "@/lib/workspace-data"
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Simulated workspace corpus — realistic Notion pages/tasks/databases/notes
+// Query → relevant subgraph
 // ──────────────────────────────────────────────────────────────────────────────
 
-const WORKSPACE: Record<string, GraphNode> = {
-  "roadmap-q1": { id: "roadmap-q1", label: "Roadmap Q1 2026", type: "page" },
-  "product-strategy": { id: "product-strategy", label: "Product Strategy", type: "page" },
-  "design-system-v3": { id: "design-system-v3", label: "Design System v3", type: "page" },
-  "engineering-wiki": { id: "engineering-wiki", label: "Engineering Wiki", type: "page" },
-  "api-documentation": { id: "api-documentation", label: "API Documentation", type: "page" },
-  "onboarding-guide": { id: "onboarding-guide", label: "Onboarding Guide", type: "page" },
-  "security-policies": { id: "security-policies", label: "Security & Policies", type: "page" },
-  "brand-guidelines": { id: "brand-guidelines", label: "Brand Guidelines", type: "page" },
-  "analytics-dashboard": { id: "analytics-dashboard", label: "Analytics Dashboard", type: "page" },
-  "go-to-market-plan": { id: "go-to-market-plan", label: "Go-to-Market Plan", type: "page" },
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "for", "with", "is",
+  "are", "was", "were", "be", "been", "being", "this", "that", "what", "how", "why",
+  "when", "where", "which", "who", "i", "me", "my", "we", "us", "our", "you", "your",
+  "it", "its", "do", "does", "did", "have", "has", "had", "should", "would", "could",
+  "tell", "show", "give", "find", "about", "from", "into", "summarize", "summary",
+  "connect", "brief", "search", "today", "now",
+])
 
-  "team-okrs": { id: "team-okrs", label: "Team OKRs", type: "database" },
-  "bug-tracker": { id: "bug-tracker", label: "Bug Tracker", type: "database" },
-  "customer-feedback": { id: "customer-feedback", label: "Customer Feedback", type: "database" },
-  "content-calendar": { id: "content-calendar", label: "Content Calendar", type: "database" },
-  "feature-requests": { id: "feature-requests", label: "Feature Requests", type: "database" },
-  "hiring-pipeline": { id: "hiring-pipeline", label: "Hiring Pipeline", type: "database" },
-  "sprint-board": { id: "sprint-board", label: "Sprint Board", type: "database" },
-
-  "task-ship-2-4": { id: "task-ship-2-4", label: "Ship Release 2.4", type: "task" },
-  "task-review-pr-284": { id: "task-review-pr-284", label: "Review PR #284", type: "task" },
-  "task-update-docs": { id: "task-update-docs", label: "Update API Docs", type: "task" },
-  "task-prep-launch": { id: "task-prep-launch", label: "Prep Launch Email", type: "task" },
-  "task-fix-auth-bug": { id: "task-fix-auth-bug", label: "Fix Auth Bug", type: "task" },
-  "task-design-review": { id: "task-design-review", label: "Design Review Q1", type: "task" },
-  "task-refactor-api": { id: "task-refactor-api", label: "Refactor API Layer", type: "task" },
-
-  "note-standup-0315": { id: "note-standup-0315", label: "Standup 03/15", type: "note" },
-  "note-sprint-retro": { id: "note-sprint-retro", label: "Sprint Retro", type: "note" },
-  "note-brainstorm": { id: "note-brainstorm", label: "Brainstorm Session", type: "note" },
-  "note-1-1-sam": { id: "note-1-1-sam", label: "1:1 with Sam", type: "note" },
-  "note-design-critique": { id: "note-design-critique", label: "Design Critique", type: "note" },
-  "note-qa-findings": { id: "note-qa-findings", label: "QA Findings", type: "note" },
-  "note-planning-meeting": { id: "note-planning-meeting", label: "Planning Meeting", type: "note" },
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(t => t.length > 2 && !STOPWORDS.has(t))
 }
 
-const ALL_IDS = Object.keys(WORKSPACE)
+function scoreNode(query: string, node: GraphNode): number {
+  const tokens = tokenize(query)
+  if (tokens.length === 0) return 0
+  const haystack = `${node.label} ${node.id} ${node.type ?? ""}`.toLowerCase()
+  let score = 0
+  for (const t of tokens) {
+    if (haystack.includes(t)) score += 3
+    // partial / fuzzy
+    if (haystack.split(/\s+/).some(word => word.startsWith(t))) score += 1
+  }
+  return score
+}
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Graph generator: deterministic subgraph per query
-// ──────────────────────────────────────────────────────────────────────────────
+function buildAdjacency(edges: GraphEdge[]): Map<string, Set<string>> {
+  const adj = new Map<string, Set<string>>()
+  for (const e of edges) {
+    if (!adj.has(e.from)) adj.set(e.from, new Set())
+    if (!adj.has(e.to)) adj.set(e.to, new Set())
+    adj.get(e.from)!.add(e.to)
+    adj.get(e.to)!.add(e.from)
+  }
+  return adj
+}
 
+/**
+ * Hash for deterministic fallback when nothing matches.
+ */
 function hashString(str: string): number {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = (hash << 5) - hash + char
+    hash = (hash << 5) - hash + str.charCodeAt(i)
     hash = hash & hash
   }
   return Math.abs(hash)
 }
 
-function selectNodes(message: string, count: number): string[] {
-  const seed = hashString(message.toLowerCase().trim())
-  const shuffled = [...ALL_IDS].sort((a, b) => {
-    const ha = hashString(a + seed.toString())
-    const hb = hashString(b + seed.toString())
-    return ha - hb
-  })
-  return shuffled.slice(0, count)
+/**
+ * Pick seed nodes for a query:
+ * 1. Score every node against the query, take top matches
+ * 2. If nothing matches, fall back to a deterministic anchor based on intent
+ */
+function pickSeedNodes(query: string, intent: Intent | undefined): GraphNode[] {
+  const scored = ALL_NODE_IDS
+    .map(id => ({ node: WORKSPACE[id], score: scoreNode(query, WORKSPACE[id]) }))
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+
+  if (scored.length > 0) {
+    return scored.slice(0, 3).map(s => s.node)
+  }
+
+  // Intent-aware fallback anchors
+  const intentAnchors: Record<Intent, string[]> = {
+    search: ["product-strategy", "engineering-wiki"],
+    summarize: ["roadmap-q1", "product-strategy"],
+    connect: ["product-strategy", "engineering-wiki", "design-system-v3"],
+    brief: ["sprint-board", "task-ship-2-4", "note-standup-0315"],
+  }
+  const anchors = intentAnchors[intent ?? "search"]
+  // Add a deterministic third pick from the workspace for variety
+  const seed = hashString(query)
+  const extra = ALL_NODE_IDS[seed % ALL_NODE_IDS.length]
+  return Array.from(new Set([...anchors, extra])).slice(0, 3).map(id => WORKSPACE[id])
 }
 
-function generateGraph(message: string, intent?: string): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const nodeCount = 5 + Math.floor(hashString(message + (intent || "")) % 5)
-  const selectedIds = selectNodes(message, nodeCount)
-  const nodes = selectedIds.map(id => WORKSPACE[id])
+/**
+ * Build a focused subgraph: seed nodes + their 1-hop neighbors,
+ * plus the edges between every node in that set.
+ */
+function buildSubgraph(seeds: GraphNode[], maxNodes: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const adj = buildAdjacency(WORKSPACE_EDGES)
+  const included = new Set<string>(seeds.map(s => s.id))
 
-  const edges: GraphEdge[] = []
-  const edgeCount = Math.max(nodeCount - 2, 2)
-
-  for (let i = 0; i < edgeCount; i++) {
-    const fromIdx = i % nodes.length
-    const toIdx = (i + 1 + Math.floor(i / 2)) % nodes.length
-    if (fromIdx !== toIdx) {
-      edges.push({
-        from: nodes[fromIdx].id,
-        to: nodes[toIdx].id,
-        relation: ["references", "links to", "depends on", "related to"][i % 4],
-      })
+  // Add 1-hop neighbors of each seed
+  for (const seed of seeds) {
+    const neighbors = adj.get(seed.id)
+    if (!neighbors) continue
+    for (const n of neighbors) {
+      if (included.size >= maxNodes) break
+      included.add(n)
     }
   }
+
+  // If still small, expand to 2-hop
+  if (included.size < Math.min(maxNodes, 6)) {
+    const second = new Set<string>()
+    for (const id of included) {
+      const neighbors = adj.get(id)
+      if (!neighbors) continue
+      for (const n of neighbors) second.add(n)
+    }
+    for (const id of second) {
+      if (included.size >= maxNodes) break
+      included.add(id)
+    }
+  }
+
+  const nodes = Array.from(included).map(id => WORKSPACE[id]).filter(Boolean)
+  const edges = WORKSPACE_EDGES.filter(e => included.has(e.from) && included.has(e.to))
 
   return { nodes, edges }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Answer generator: realistic AI responses
+// Answer generators per intent (uses real note content)
 // ──────────────────────────────────────────────────────────────────────────────
 
-function generateAnswer(message: string, intent: string | undefined, nodes: GraphNode[]): string {
-  const nodeNames = nodes.slice(0, 3).map(n => `**${n.label}**`).join(", ")
+function listFmt(items: string[]): string {
+  if (items.length === 0) return ""
+  if (items.length === 1) return items[0]
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`
+}
 
-  switch (intent) {
-    case "search":
-      return `I found ${nodes.length} relevant items in your workspace matching "${message}":\n\n${nodeNames}${
-        nodes.length > 3 ? ", and others" : ""
-      }.\n\nThe graph shows how these pages, databases, and notes are interconnected.`
-
-    case "summarize":
-      return `Here's a summary based on "${message}":\n\nYour workspace contains ${nodes.length} related items including ${nodeNames}. The primary focus is on cross-functional alignment and strategic planning. Key action items include updating documentation, tracking progress, and maintaining communication across teams.`
-
-    case "connect":
-      return `I've identified ${nodes.length} connections related to "${message}":\n\n${nodeNames} are all linked through shared objectives and dependencies. The graph visualizes how these concepts flow through your workspace, revealing hidden relationships between strategy, execution, and documentation.`
-
-    case "brief":
-      return `Today's brief for "${message}":\n\n**Active work**: ${nodes.filter(n => n.type === "task").length} tasks in progress.\n**Key resources**: ${nodeNames}.\n**Status**: On track. Recent updates in sprint planning and design reviews show steady momentum. Check the graph for dependencies.`
-
-    default:
-      return `Analyzed "${message}" across your workspace.\n\nFound ${nodes.length} relevant items: ${nodeNames}${
-        nodes.length > 3 ? ", plus additional resources" : ""
-      }. The knowledge graph shows their relationships and dependencies, helping you understand how these pieces fit together in your vault.`
+function answerForSearch(query: string, nodes: GraphNode[]): string {
+  const top = nodes.slice(0, 5)
+  const groupedByType: Record<string, string[]> = {}
+  for (const n of top) {
+    const t = n.type || "page"
+    if (!groupedByType[t]) groupedByType[t] = []
+    groupedByType[t].push(`**${n.label}**`)
   }
+
+  const lines: string[] = []
+  lines.push(`I searched your workspace for "${query}" and found ${nodes.length} relevant items.`)
+  lines.push("")
+  for (const [type, items] of Object.entries(groupedByType)) {
+    lines.push(`**${capitalize(type)}s** — ${items.join(", ")}`)
+  }
+  lines.push("")
+  lines.push("Open any citation below to read the source, or click a node in the graph to jump to it.")
+  return lines.join("\n")
+}
+
+function answerForSummarize(query: string, nodes: GraphNode[]): string {
+  const primary = nodes[0]
+  if (!primary) return `I couldn't find anything to summarize for "${query}".`
+
+  const note = NOTE_CONTENT[primary.id]
+  const supportNames = nodes.slice(1, 4).map(n => `**${n.label}**`)
+
+  const lines: string[] = []
+  lines.push(`Here's a summary based on "${query}", grounded in **${primary.label}**:`)
+  lines.push("")
+
+  if (note) {
+    // Pull the first non-heading bullet/paragraphs as the summary skeleton
+    const condensed = condenseContent(note.content)
+    lines.push(condensed)
+  } else {
+    lines.push(`${primary.label} is the central reference for this topic.`)
+  }
+
+  if (supportNames.length > 0) {
+    lines.push("")
+    lines.push(`**Cross-references**: ${listFmt(supportNames)}.`)
+  }
+
+  return lines.join("\n")
+}
+
+function answerForConnect(query: string, nodes: GraphNode[], edges: GraphEdge[]): string {
+  const lines: string[] = []
+  lines.push(`I traced ${edges.length} connection${edges.length === 1 ? "" : "s"} for "${query}" across ${nodes.length} item${nodes.length === 1 ? "" : "s"}.`)
+  lines.push("")
+
+  // Surface the strongest 4 relationships in plain English
+  const interesting = edges.slice(0, 4)
+  for (const e of interesting) {
+    const a = WORKSPACE[e.from]
+    const b = WORKSPACE[e.to]
+    if (!a || !b) continue
+    const verb = e.relation || "is related to"
+    lines.push(`- **${a.label}** ${verb} **${b.label}**`)
+  }
+
+  if (edges.length > 4) {
+    lines.push(`- …and ${edges.length - 4} more relationships in the graph.`)
+  }
+
+  lines.push("")
+  lines.push("Hover any node on the right to see its direct neighbors highlighted.")
+  return lines.join("\n")
+}
+
+function answerForBrief(query: string, nodes: GraphNode[]): string {
+  const tasks = nodes.filter(n => n.type === "task")
+  const notes = nodes.filter(n => n.type === "note")
+  const dbs = nodes.filter(n => n.type === "database")
+  const pages = nodes.filter(n => n.type === "page")
+
+  const lines: string[] = []
+  lines.push(`**Today's brief — ${query}**`)
+  lines.push("")
+
+  if (tasks.length > 0) {
+    lines.push(`**In flight (${tasks.length})**`)
+    for (const t of tasks.slice(0, 4)) {
+      const note = NOTE_CONTENT[t.id]
+      const status = note ? extractStatus(note.content) : null
+      lines.push(`- ${t.label}${status ? ` — _${status}_` : ""}`)
+    }
+    lines.push("")
+  }
+
+  if (notes.length > 0) {
+    lines.push(`**Recent notes**: ${notes.slice(0, 3).map(n => n.label).join(" · ")}`)
+  }
+
+  if (pages.length > 0 || dbs.length > 0) {
+    const refs = [...pages, ...dbs].slice(0, 3).map(n => `**${n.label}**`)
+    lines.push(`**Key references**: ${listFmt(refs)}.`)
+  }
+
+  lines.push("")
+  lines.push("Click any citation to open the page, or tap a node to focus the graph.")
+  return lines.join("\n")
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+function condenseContent(md: string): string {
+  // Strip headings and join the first 3 meaningful lines into a paragraph.
+  const lines = md
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l.length > 0 && !l.startsWith("#"))
+  const picked: string[] = []
+  for (const l of lines) {
+    if (picked.length >= 3) break
+    picked.push(l.replace(/^[-*]\s*/, "• "))
+  }
+  return picked.join("\n")
+}
+
+function extractStatus(md: string): string | null {
+  const match = md.match(/\*\*Status\*\*:\s*([^\n]+)/i)
+  return match ? match[1].trim() : null
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -135,14 +286,28 @@ export async function POST(req: NextRequest) {
     // Simulate realistic latency (API processing + MCP fetch)
     await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 400))
 
-    const graph = generateGraph(message, intent)
-    const answer = generateAnswer(message, intent, graph.nodes)
+    const seeds = pickSeedNodes(message, intent)
+    const maxNodes = intent === "brief" ? 9 : intent === "connect" ? 10 : 7
+    const graph = buildSubgraph(seeds, maxNodes)
 
-    const response: VaultmindResponse = {
-      answer,
-      graph,
+    let answer: string
+    switch (intent) {
+      case "summarize":
+        answer = answerForSummarize(message, graph.nodes)
+        break
+      case "connect":
+        answer = answerForConnect(message, graph.nodes, graph.edges)
+        break
+      case "brief":
+        answer = answerForBrief(message, graph.nodes)
+        break
+      case "search":
+      default:
+        answer = answerForSearch(message, graph.nodes)
+        break
     }
 
+    const response: VaultmindResponse = { answer, graph }
     return NextResponse.json(response)
   } catch (error) {
     console.error("[v0] VaultMind API error:", error)
