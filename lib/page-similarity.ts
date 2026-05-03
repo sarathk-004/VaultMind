@@ -185,11 +185,11 @@ export function buildSemanticEdges(
   docs: Map<string, SimilarityDoc>,
   opts: { topK?: number; minScore?: number } = {},
 ): SimilarityEdge[] {
-  const { topK = 5, minScore = 0.06 } = opts
+  // 1. Lower max connections to 3 to prevent spiderwebbing, and raise the strict cutoff.
+  const { topK = 3, minScore = 0.18 } = opts
   const ids = Array.from(docs.keys())
   if (ids.length < 2) return []
 
-  // 1. Per-doc artefacts: concept set, title-token set, weighted TF.
   const conceptsById = new Map<string, Set<string>>()
   const titleTokensById = new Map<string, Set<string>>()
   const tokensById = new Map<string, string[]>()
@@ -197,13 +197,11 @@ export function buildSemanticEdges(
   for (const [id, { title, body }] of docs) {
     const titleTokens = tokenize(title)
     titleTokensById.set(id, new Set(titleTokens))
-    // Combine title (heavily weighted) + body for TF-IDF input.
     const repeatedTitle = `${title} `.repeat(5)
     tokensById.set(id, tokenize(`${repeatedTitle} ${body}`))
     conceptsById.set(id, detectConcepts(`${title} ${body}`))
   }
 
-  // 2. Document frequency (over the combined corpus).
   const df = new Map<string, number>()
   for (const tokens of tokensById.values()) {
     const seen = new Set<string>()
@@ -214,7 +212,6 @@ export function buildSemanticEdges(
     }
   }
 
-  // 3. TF-IDF vectors. CRITICAL: keep df=1 terms (rare topical anchors).
   const N = ids.length
   const vectors = new Map<string, Map<string, number>>()
   for (const [id, tokens] of tokensById) {
@@ -227,9 +224,6 @@ export function buildSemanticEdges(
     const vec = new Map<string, number>()
     let normSq = 0
     for (const [term, count] of tf) {
-      const dfc = df.get(term) ?? 1
-      // Drop terms appearing in ≥85% of docs (true noise) — but KEEP rare
-      // terms; they're often the topical anchor for niche pages.
       if (dfc / N > 0.85) continue
       const idf = Math.log((N + 1) / (dfc + 1)) + 1
       const tfidf = (1 + Math.log(count)) * idf
@@ -241,7 +235,6 @@ export function buildSemanticEdges(
     vectors.set(id, vec)
   }
 
-  // 4. Pairwise blended similarity. ~17k pairs at N=130, runs in a few ms.
   const perNodeBest = new Map<string, { id: string; score: number }[]>()
   const ensure = (id: string) => {
     let arr = perNodeBest.get(id)
@@ -252,8 +245,9 @@ export function buildSemanticEdges(
     return arr
   }
 
-  const W_CONCEPT = 0.45
-  const W_TITLE = 0.2
+  // 2. Rebalance weights to favor exact title token overlap heavily
+  const W_CONCEPT = 0.25
+  const W_TITLE = 0.40
   const W_TFIDF = 0.35
 
   for (let i = 0; i < ids.length; i++) {
@@ -268,7 +262,6 @@ export function buildSemanticEdges(
       const titleB = titleTokensById.get(idB)!
       const conceptsB = conceptsById.get(idB)!
 
-      // Cosine — iterate over the smaller vector for speed.
       let dot = 0
       if (va.size > 0 && vb.size > 0) {
         const [small, big] = va.size <= vb.size ? [va, vb] : [vb, va]
@@ -281,19 +274,16 @@ export function buildSemanticEdges(
       const conceptScore = jaccard(conceptsA, conceptsB)
       const titleScore = jaccard(titleA, titleB)
 
-      // If two pages share a concept, give them a meaningful score floor —
-      // even when titles/body have no token overlap (the "MS" ↔ "University
-      // Comparisons" case).
+      // 3. NO ARTIFICIAL FLOOR. Pure mathematical similarity only.
       let score = W_CONCEPT * conceptScore + W_TITLE * titleScore + W_TFIDF * dot
-      if (conceptScore > 0 && score < 0.12) score = 0.12
 
+      // Only link if it passes our new, much stricter threshold
       if (score < minScore) continue
       ensure(idA).push({ id: idB, score })
       ensure(idB).push({ id: idA, score })
     }
   }
 
-  // 5. Top-K per node, then dedupe undirected.
   const seen = new Set<string>()
   const out: SimilarityEdge[] = []
   for (const [id, candidates] of perNodeBest) {
