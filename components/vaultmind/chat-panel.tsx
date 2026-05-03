@@ -1,6 +1,6 @@
 "use client"
 
-import { BrainCircuit, Menu, Network, Sparkles, Trash2 } from "lucide-react"
+import { BrainCircuit, Menu, Network, Trash2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ChatInput } from "./chat-input"
@@ -112,10 +112,6 @@ export function ChatPanel(props: ChatPanelProps) {
               {title}
             </button>
           )}
-          <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary border border-primary/20 shrink-0">
-            <Sparkles className="h-2.5 w-2.5" aria-hidden />
-            GPT-4o
-          </span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">

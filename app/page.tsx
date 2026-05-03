@@ -23,29 +23,7 @@ const LOADING_STATUSES = [
   "Building knowledge graph…",
 ]
 
-const SEED_HISTORY: ChatHistoryItem[] = [
-  {
-    id: "seed-roadmap",
-    title: "Q1 roadmap review",
-    preview: "Summarize the engineering priorities…",
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
-    messages: [],
-  },
-  {
-    id: "seed-feedback",
-    title: "Customer feedback themes",
-    preview: "Connect feedback to feature requests…",
-    createdAt: Date.now() - 1000 * 60 * 60 * 24,
-    messages: [],
-  },
-  {
-    id: "seed-retro",
-    title: "Sprint retro notes",
-    preview: "What blockers came up last sprint?",
-    createdAt: Date.now() - 1000 * 60 * 60 * 6,
-    messages: [],
-  },
-]
+const SEED_HISTORY: ChatHistoryItem[] = []
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`

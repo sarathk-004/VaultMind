@@ -34,10 +34,7 @@ export function Sidebar({
         <div className="h-7 w-7 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center">
           <BrainCircuit className="h-4 w-4 text-primary" aria-hidden />
         </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold tracking-tight">VaultMind</span>
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">v1.0</span>
-        </div>
+        <span className="text-sm font-semibold tracking-tight">VaultMind</span>
       </div>
 
       {/* Workspace */}

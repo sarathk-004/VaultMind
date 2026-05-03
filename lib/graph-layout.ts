@@ -18,8 +18,9 @@ interface SimNode {
 
 const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
-const MIN_SEPARATION = 180
-const COLLISION_PADDING = 30
+// Increased so labels never visually overlap and edges are easy to follow.
+const MIN_SEPARATION = 260
+const COLLISION_PADDING = 70
 
 function seededRandom(seed: string) {
   let h = 0
@@ -94,10 +95,10 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  const repulsionStrength = 25000
-  const springStrength = 0.08
-  const centerStrength = 0.003
-  const clusterStrength = 0.012
+  const repulsionStrength = 42000
+  const springStrength = 0.06
+  const centerStrength = 0.002
+  const clusterStrength = 0.009
   const damping = 0.82
 
   for (let iter = 0; iter < iterations; iter++) {
@@ -177,7 +178,7 @@ export function simulateLayout(
     }
 
     // Spring attraction along edges
-    const edgeLength = Math.min(width, height) * 0.18
+    const edgeLength = Math.min(width, height) * 0.24
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]

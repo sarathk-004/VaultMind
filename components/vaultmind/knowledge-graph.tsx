@@ -43,7 +43,10 @@ export function KnowledgeGraphPanel(props: KnowledgeGraphPanelProps) {
       </aside>
 
       <Dialog open={fullscreen} onOpenChange={setFullscreen}>
-        <DialogContent className="max-w-[96vw] w-[96vw] h-[92vh] p-0 gap-0 flex flex-col bg-sidebar">
+        <DialogContent
+          showCloseButton={false}
+          className="!fixed !inset-0 !top-0 !left-0 !translate-x-0 !translate-y-0 !w-screen !h-[100dvh] !max-w-none !p-0 !gap-0 !rounded-none !border-0 flex flex-col bg-sidebar"
+        >
           <DialogTitle className="sr-only">Knowledge Graph</DialogTitle>
           <GraphCanvas
             {...props}
