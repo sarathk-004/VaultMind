@@ -11,9 +11,6 @@ importers:
       '@hookform/resolvers':
         specifier: ^3.9.1
         version: 3.10.0(react-hook-form@7.71.1(react@19.2.4))
-      '@notionhq/client':
-        specifier: ^5.20.0
-        version: 5.20.0
       '@radix-ui/react-accordion':
         specifier: 1.2.12
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -462,10 +459,6 @@ packages:
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [win32]
-
-  '@notionhq/client@5.20.0':
-    resolution: {integrity: sha512-MS0DFSfHPLZ0wi+e9mOP16gCCYbWAkaiMuu/rVK9KxDlKac4oAgHReOfTglcd77g/nlg78snp+KB7fNWP75bEw==}
-    engines: {node: '>=18'}
 
   '@opentelemetry/api@1.9.0':
     resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
@@ -1997,8 +1990,6 @@ snapshots:
 
   '@next/swc-win32-x64-msvc@16.2.4':
     optional: true
-
-  '@notionhq/client@5.20.0': {}
 
   '@opentelemetry/api@1.9.0': {}
 
