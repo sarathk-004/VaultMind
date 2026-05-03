@@ -623,9 +623,16 @@ function parseSearchResult(item: NotionPage | NotionDatabase): NotionPageMeta | 
 
   if (item.object === "page") {
     const page = item as NotionPage
+    // Notion treats every database row as a "page" with parent.type ===
+    // "database_id". We only want real top-level pages, not the contents
+    // *inside* databases — those are records, not pages.
+    const parentType = page.parent?.type
+    if (parentType === "database_id") return null
+    // Pages with `block_id` parents are nested inside a column/toggle/etc.
+    // and aren't standalone pages either.
+    if (parentType === "block_id") return null
+
     const title = getPageTitle(page).trim()
-    // Skip auto-titled / empty pages — Notion's /search returns lots of
-    // sub-blocks and empty placeholder pages that pollute the graph.
     if (!title || title.toLowerCase() === "untitled") return null
     return {
       id: page.id.replace(/-/g, ""),
