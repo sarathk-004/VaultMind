@@ -170,21 +170,30 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       }
     }
 
-    // Content-link edges: scan the first ~30 blocks of every page in parallel
-    // batches and harvest mentions / link_to_page references. This is what
-    // makes the graph genuinely interconnected — a page linking to another
-    // page in its body text becomes a real edge between them.
+    // For every page, scan top-level blocks once to get BOTH:
+    //  - explicit references (link_to_page, @mentions, child_page)
+    //  - a plaintext snippet used for similarity scoring
     const pageIds = Array.from(pages.keys())
     const BATCH = 8
     let linkEdgeCount = 0
+    const docTexts = new Map<string, string>()
+
     for (let i = 0; i < pageIds.length; i += BATCH) {
       const batch = pageIds.slice(i, i + BATCH)
       const results = await Promise.all(
-        batch.map(id => fetchPageReferences(id, token).catch(() => [] as string[])),
+        batch.map(id =>
+          fetchPageReferences(id, token).catch(() => ({ ids: [] as string[], text: "" })),
+        ),
       )
-      results.forEach((refs, idx) => {
+      results.forEach((res, idx) => {
         const sourceId = batch[idx]
-        for (const targetId of refs) {
+        const meta = pages.get(sourceId)
+        // Combine the page's title (weighted) with its body for TF-IDF.
+        // Titles get repeated so they carry more weight in the cosine score.
+        const titleBoost = meta ? `${meta.title} ${meta.title} ${meta.title}` : ""
+        docTexts.set(sourceId, `${titleBoost} ${res.text}`.trim())
+
+        for (const targetId of res.ids) {
           if (pages.has(targetId)) {
             addEdge(sourceId, targetId, "references")
             linkEdgeCount++
@@ -193,8 +202,24 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       })
     }
 
+    // Semantic edges: TF-IDF + cosine similarity over title+body text.
+    // This is what surfaces conceptual relationships — e.g. "ML Roadmap"
+    // ↔ "Probability and Statistics for ML" without any explicit link.
+    const { buildSemanticEdges } = await import("./tfidf")
+    const semanticPairs = buildSemanticEdges(docTexts, { topK: 4, minScore: 0.18 })
+    let semanticEdgeCount = 0
+    for (const pair of semanticPairs) {
+      // Avoid duplicating an existing parent/reference edge.
+      const before = edges.length
+      addEdge(pair.from, pair.to, "relates to")
+      if (edges.length > before) semanticEdgeCount++
+    }
+
     console.log(
-      `[v0] Built ${edges.length} edges (${edges.length - linkEdgeCount} parent, ${linkEdgeCount} content links)`,
+      `[v0] Built ${edges.length} edges (` +
+        `${edges.length - linkEdgeCount - semanticEdgeCount} parent, ` +
+        `${linkEdgeCount} explicit links, ` +
+        `${semanticEdgeCount} semantic)`,
     )
 
     // Cluster by connected component on the edge graph — every page that's
@@ -220,42 +245,78 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
 }
 
 /**
- * Lightweight content scan that just harvests outgoing page references —
- * @mentions in rich text and link_to_page blocks. Caches per token so we
- * don't re-scan on every snapshot rebuild within the TTL.
+ * Single-pass scan of a page's top-level blocks that returns BOTH:
+ *   - explicit references (mentions / link_to_page / child_page)
+ *   - a plaintext content snippet for similarity scoring
+ *
+ * Cached per token for the TTL so we don't re-scan on every snapshot rebuild.
  */
-const referenceCache = new Map<string, { ids: string[]; fetchedAt: number }>()
+const referenceCache = new Map<
+  string,
+  { ids: string[]; text: string; fetchedAt: number }
+>()
 const REFERENCE_TTL = 5 * 60 * 1000
 
 async function fetchPageReferences(
   pageId: string,
   token?: string | null,
-): Promise<string[]> {
+): Promise<{ ids: string[]; text: string }> {
   const cleanId = pageId.replace(/-/g, "")
   const cacheKey = `${tokenKey(token)}:${cleanId}`
   const cached = referenceCache.get(cacheKey)
   const now = Date.now()
   if (cached && now - cached.fetchedAt < REFERENCE_TTL) {
-    return cached.ids
+    return { ids: cached.ids, text: cached.text }
   }
 
   try {
     const res = await notionFetch<NotionBlockChildrenResponse>(
-      `/blocks/${cleanId}/children?page_size=30`,
+      `/blocks/${cleanId}/children?page_size=40`,
       undefined,
       token,
     )
     const ids = new Set<string>()
+    const textParts: string[] = []
     for (const block of res.results) {
       collectMentionsFromBlock(block, ids)
+      const t = extractBlockText(block)
+      if (t) textParts.push(t)
     }
-    const out = Array.from(ids).map(id => id.replace(/-/g, ""))
-    referenceCache.set(cacheKey, { ids: out, fetchedAt: now })
+    const out = {
+      ids: Array.from(ids).map(id => id.replace(/-/g, "")),
+      text: textParts.join(" ").slice(0, 4000),
+    }
+    referenceCache.set(cacheKey, { ...out, fetchedAt: now })
     return out
   } catch {
-    referenceCache.set(cacheKey, { ids: [], fetchedAt: now })
-    return []
+    referenceCache.set(cacheKey, { ids: [], text: "", fetchedAt: now })
+    return { ids: [], text: "" }
   }
+}
+
+/**
+ * Extract plaintext from any rich-text-bearing Notion block. Used purely
+ * for TF-IDF similarity — not for rendering, so we don't need full markdown.
+ */
+function extractBlockText(block: any): string {
+  if (!block || typeof block !== "object") return ""
+  const data = block[block.type]
+  if (!data) return ""
+  if (Array.isArray(data.rich_text)) {
+    return data.rich_text
+      .map((rt: any) => rt?.plain_text ?? "")
+      .filter(Boolean)
+      .join(" ")
+  }
+  // Tables: walk cells
+  if (block.type === "table_row" && Array.isArray(data.cells)) {
+    return data.cells
+      .flat()
+      .map((rt: any) => rt?.plain_text ?? "")
+      .filter(Boolean)
+      .join(" ")
+  }
+  return ""
 }
 
 /**

@@ -466,6 +466,11 @@ function GraphCanvas({
                 const cy = my + (dx / norm) * offset
                 const path = `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`
 
+                // Visually distinguish edge kinds:
+                //   contains      → solid (parent/child, structural)
+                //   references    → solid lighter (explicit @mention / link)
+                //   relates to    → dashed (semantic similarity)
+                const isSemantic = edge.relation === "relates to"
                 return (
                   <path
                     key={`edge-${idx}`}
@@ -476,10 +481,15 @@ function GraphCanvas({
                         ? "#60a5fa"
                         : focused && showFullGraph && queryActive
                         ? "#9ca3af"
+                        : isSemantic
+                        ? "#3f3f46"
                         : "#525252"
                     }
-                    strokeWidth={(active ? 1.5 : 1) / transform.k}
-                    strokeOpacity={edgeOpacity(edge.from, edge.to)}
+                    strokeWidth={(active ? 1.5 : isSemantic ? 0.75 : 1) / transform.k}
+                    strokeOpacity={
+                      edgeOpacity(edge.from, edge.to) * (isSemantic ? 0.7 : 1)
+                    }
+                    strokeDasharray={isSemantic ? `${4 / transform.k} ${4 / transform.k}` : undefined}
                     style={{ transition: "stroke 0.25s, stroke-opacity 0.25s" }}
                   />
                 )
