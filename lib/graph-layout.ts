@@ -20,8 +20,8 @@ const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
 // Repulsion only kicks in within this radius — keeps clusters tight while
 // preventing label overlap.
-const MIN_SEPARATION = 200
-const COLLISION_PADDING = 40
+const MIN_SEPARATION = 170
+const COLLISION_PADDING = 30
 
 function seededRandom(seed: string) {
   let h = 0
@@ -60,26 +60,50 @@ export function simulateLayout(
   const cx = width / 2
   const cy = height / 2
 
-  // Cluster anchors arranged on a ring so groups don't all collapse to center.
-  const clusterIds = Array.from(new Set(nodes.map(n => n.cluster ?? n.id)))
-  const ringRadius = Math.min(width, height) * 0.32
+  // Group clusters by size: multi-node clusters get prime central real estate
+  // on an inner ring; isolated singletons (no graph connections) live on an
+  // outer perimeter so they don't visually compete with the structured groups.
+  const clusterSize = new Map<string, number>()
+  for (const n of nodes) {
+    const c = n.cluster ?? n.id
+    clusterSize.set(c, (clusterSize.get(c) ?? 0) + 1)
+  }
+  const multiClusters = Array.from(clusterSize.keys())
+    .filter(c => (clusterSize.get(c) ?? 0) > 1)
+    .sort((a, b) => (clusterSize.get(b) ?? 0) - (clusterSize.get(a) ?? 0))
+  const singletonClusters = Array.from(clusterSize.keys()).filter(
+    c => (clusterSize.get(c) ?? 0) === 1,
+  )
+
+  const minSize = Math.min(width, height)
+  const innerRadius = multiClusters.length > 1 ? minSize * 0.22 : 0
+  const outerRadius = minSize * 0.46
   const anchors = new Map<string, { x: number; y: number }>()
-  clusterIds.forEach((c, i) => {
-    if (clusterIds.length === 1) {
+
+  multiClusters.forEach((c, i) => {
+    if (multiClusters.length === 1) {
       anchors.set(c, { x: cx, y: cy })
       return
     }
-    const angle = (i / clusterIds.length) * Math.PI * 2
+    const angle = (i / multiClusters.length) * Math.PI * 2
     anchors.set(c, {
-      x: cx + Math.cos(angle) * ringRadius,
-      y: cy + Math.sin(angle) * ringRadius,
+      x: cx + Math.cos(angle) * innerRadius,
+      y: cy + Math.sin(angle) * innerRadius,
+    })
+  })
+  singletonClusters.forEach((c, i) => {
+    const angle = (i / Math.max(singletonClusters.length, 1)) * Math.PI * 2
+    anchors.set(c, {
+      x: cx + Math.cos(angle) * outerRadius,
+      y: cy + Math.sin(angle) * outerRadius,
     })
   })
 
   const sim: SimNode[] = nodes.map(n => {
     const cluster = n.cluster ?? n.id
     const a = anchors.get(cluster)!
-    const localR = 80 + rand() * 60
+    const isSingleton = (clusterSize.get(cluster) ?? 1) === 1
+    const localR = isSingleton ? 30 + rand() * 30 : 50 + rand() * 40
     const localAngle = rand() * Math.PI * 2
     return {
       id: n.id,
@@ -96,13 +120,13 @@ export function simulateLayout(
   const idIndex = new Map(sim.map((n, i) => [n.id, i]))
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
-  // Springs now dominate over repulsion at typical inter-node distances so
-  // connected pages stay visually close. Cluster pull is also stronger so
-  // groups remain tight.
-  const repulsionStrength = 18000
-  const springStrength = 0.22
-  const centerStrength = 0.0015
-  const clusterStrength = 0.025
+  // Springs dominate over repulsion at typical inter-node distances so
+  // connected pages settle close together. Strong cluster gravity keeps
+  // members of a connected component visually tight.
+  const repulsionStrength = 12000
+  const springStrength = 0.3
+  const centerStrength = 0.0012
+  const clusterStrength = 0.05
   const damping = 0.82
 
   for (let iter = 0; iter < iterations; iter++) {
@@ -185,7 +209,7 @@ export function simulateLayout(
     // Fixed pixel length (independent of canvas size) — keeps linked pages
     // a consistent, readable distance apart regardless of how big the
     // virtual canvas grows for large workspaces.
-    const edgeLength = 180
+    const edgeLength = 155
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]

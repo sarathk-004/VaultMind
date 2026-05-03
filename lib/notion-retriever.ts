@@ -115,8 +115,9 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       }
     }
 
-    // Compute clusters: walk parent chain → top-level ancestor.
-    assignClusters(pages)
+    // Cluster by connected component on the edge graph — every page that's
+    // linked (directly or transitively) lands in the same cluster.
+    assignClustersByConnectedComponent(pages, edges)
 
     const snap: CachedSnapshot = {
       pages,
@@ -136,22 +137,40 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
   }
 }
 
-function assignClusters(pages: Map<string, NotionPageMeta>): void {
-  const memo = new Map<string, string>()
-  const findRoot = (id: string, depth = 0): string => {
-    if (depth > 20) return id
-    if (memo.has(id)) return memo.get(id)!
-    const m = pages.get(id)
-    if (!m || !m.parentId || !pages.has(m.parentId)) {
-      memo.set(id, id)
-      return id
+/**
+ * Cluster pages by connected component over the parent/child edge graph
+ * using union-find. Any two pages that share an ancestor (direct or
+ * transitive) end up in the same cluster — so visually grouped means
+ * literally graph-connected.
+ */
+function assignClustersByConnectedComponent(
+  pages: Map<string, NotionPageMeta>,
+  edges: GraphEdge[],
+): void {
+  const parent = new Map<string, string>()
+  for (const id of pages.keys()) parent.set(id, id)
+
+  const find = (x: string): string => {
+    let cur = x
+    while (parent.get(cur) !== cur) {
+      const p = parent.get(cur)!
+      const gp = parent.get(p) ?? p
+      parent.set(cur, gp) // path compression
+      cur = gp
     }
-    const root = findRoot(m.parentId, depth + 1)
-    memo.set(id, root)
-    return root
+    return cur
+  }
+  const union = (a: string, b: string) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent.set(ra, rb)
+  }
+
+  for (const e of edges) {
+    if (pages.has(e.from) && pages.has(e.to)) union(e.from, e.to)
   }
   for (const [id, meta] of pages) {
-    meta.cluster = findRoot(id)
+    meta.cluster = find(id)
   }
 }
 
@@ -604,9 +623,13 @@ function parseSearchResult(item: NotionPage | NotionDatabase): NotionPageMeta | 
 
   if (item.object === "page") {
     const page = item as NotionPage
+    const title = getPageTitle(page).trim()
+    // Skip auto-titled / empty pages — Notion's /search returns lots of
+    // sub-blocks and empty placeholder pages that pollute the graph.
+    if (!title || title.toLowerCase() === "untitled") return null
     return {
       id: page.id.replace(/-/g, ""),
-      title: getPageTitle(page),
+      title,
       type: guessPageType(page),
       parentId: extractParentId(page),
       url: page.url,
@@ -614,9 +637,13 @@ function parseSearchResult(item: NotionPage | NotionDatabase): NotionPageMeta | 
   }
   if (item.object === "database") {
     const db = item as NotionDatabase
+    const title = getDatabaseTitle(db).trim()
+    if (!title || title.toLowerCase() === "untitled database" || title.toLowerCase() === "untitled") {
+      return null
+    }
     return {
       id: db.id.replace(/-/g, ""),
-      title: getDatabaseTitle(db),
+      title,
       type: "database",
       parentId: extractParentId(db),
       url: db.url,
@@ -653,6 +680,6 @@ function mockSnapshot(): CachedSnapshot {
       type: (node.type as NodeType) || "page",
     })
   }
-  assignClusters(pages)
+  assignClustersByConnectedComponent(pages, WORKSPACE_EDGES)
   return { pages, edges: WORKSPACE_EDGES, fetchedAt: Date.now(), source: "mock", usingMock: true }
 }
