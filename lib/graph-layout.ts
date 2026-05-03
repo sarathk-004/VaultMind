@@ -50,7 +50,7 @@ export function simulateLayout(
   edges: GraphEdge[],
   width: number,
   height: number,
-  iterations = 00,
+  iterations = 700,
 ): PositionedNode[] {
   if (nodes.length === 0) return []
 
