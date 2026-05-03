@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     console.log(
       `[v0] API: snapshot has ${snap.pages.size} pages, ${snap.edges.length} edges, usingMock=${snap.usingMock}`,
     )
-    const topPages = rankPages(message, snap)
+    const topPages = await rankPages(message, snap)
     console.log(
       "[v0] API: ranked",
       topPages.length,
