@@ -1,7 +1,7 @@
 # VaultMind
 https://vault-mind-sage.vercel.app/
 
-An AI-powered Notion workspace assistant that uses MCP (Model Context Protocol) to fetch real data and visualize relationships between pages as a live knowledge graph.
+An AI-powered Notion workspace agent that uses MCP (Model Context Protocol) to fetch real data and visualize relationships between pages as a live knowledge graph.
 
 Built with Next.js 14 App Router, shadcn/ui, and a custom SVG graph engine — no external graph libraries.
 
