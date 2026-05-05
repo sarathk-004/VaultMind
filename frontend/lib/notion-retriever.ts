@@ -199,25 +199,61 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       })
     }
 
-    // Semantic edges: blended concept-tag + stemmed-title + TF-IDF similarity.
-    // Surfaces conceptual relationships even between pages that share zero
-    // literal tokens (e.g. "MS in US" ↔ "University Comparisons" via the
-    // shared `us_edu` concept tag).
-    const { buildSemanticEdges } = await import("./page-similarity")
-    const semanticPairs = buildSemanticEdges(docTexts, { topK: 5, minScore: 0.06 })
+    // Semantic edges via the Python similarity sidecar:
+    //
+    //   chunking → BGE-Small embeddings → FAISS ANN → chunk voting (top_k_mean
+    //   k=3) → domain-aware threshold → per-page top-K
+    //
+    // The chunk-voting step is the core fix for the "Stevens University ↔ Diet
+    // Plan" false-positive problem: a single shared word can no longer create
+    // an edge — three independent chunk pairs must agree the pages are similar
+    // before the gate opens. Domain-aware thresholds further cut cross-topic
+    // bleed (e.g. an `us_edu` page won't connect to a `health` page unless its
+    // chunks are exceptionally close, ≥ 0.62 cosine).
+    //
+    // If the sidecar is unreachable (cold start, dev without `vercel dev`, or
+    // a model still loading), we gracefully fall back to the in-process
+    // TF-IDF + concept tagging heuristic so the graph never breaks.
+    const { buildSemanticEdgesViaSidecar } = await import("./similarity-sidecar")
+    const sidecarPayload = Array.from(docTexts.entries()).map(([id, d]) => ({
+      id,
+      title: d.title,
+      body: d.body,
+    }))
     let semanticEdgeCount = 0
-    for (const pair of semanticPairs) {
-      // Avoid duplicating an existing parent/reference edge.
-      const before = edges.length
-      addEdge(pair.from, pair.to, "relates to")
-      if (edges.length > before) semanticEdgeCount++
+    let semanticSource: "sidecar" | "fallback" = "sidecar"
+    const sidecarRes = await buildSemanticEdgesViaSidecar(sidecarPayload, {
+      topK: 5,
+      timeoutMs: 60_000,
+      minChunksForVoting: 3,
+    })
+    if (sidecarRes) {
+      console.log(
+        `[v0] Sidecar built ${sidecarRes.edges.length} semantic edges`,
+        sidecarRes.stats,
+      )
+      for (const pair of sidecarRes.edges) {
+        const before = edges.length
+        addEdge(pair.from, pair.to, "relates to")
+        if (edges.length > before) semanticEdgeCount++
+      }
+    } else {
+      semanticSource = "fallback"
+      console.warn("[v0] Falling back to TF-IDF similarity (sidecar unavailable)")
+      const { buildSemanticEdges } = await import("./page-similarity")
+      const fallbackPairs = buildSemanticEdges(docTexts, { topK: 3, minScore: 0.22 })
+      for (const pair of fallbackPairs) {
+        const before = edges.length
+        addEdge(pair.from, pair.to, "relates to")
+        if (edges.length > before) semanticEdgeCount++
+      }
     }
 
     console.log(
       `[v0] Built ${edges.length} edges (` +
         `${edges.length - linkEdgeCount - semanticEdgeCount} parent, ` +
         `${linkEdgeCount} explicit links, ` +
-        `${semanticEdgeCount} semantic)`,
+        `${semanticEdgeCount} semantic [${semanticSource}])`,
     )
 
     // Cluster by connected component on the edge graph — every page that's

@@ -14,3 +14,12 @@ next.user-config.*
 node_modules
 .next/
 .DS_Store
+
+# Python sidecar
+__pycache__/
+*.pyc
+.venv/
+backend/.venv/
+# Sentence-Transformers model cache (large)
+.cache/huggingface/
+backend/.cache/
