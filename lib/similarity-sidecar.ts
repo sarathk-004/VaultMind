@@ -1,10 +1,14 @@
 /**
- * Client for the Python similarity sidecar (FastAPI + BGE-Small + FAISS).
+ * Client for the standalone Python similarity sidecar (FastAPI + BGE-Small + FAISS).
  *
- * The sidecar is mounted at `/api/sidecar/*` in `vercel.json`. Internally it
- * implements the recommended chunked-embedding + chunk-voting + domain-aware
- * threshold pipeline. This module just calls it over HTTP with a timeout and
- * normalizes the response into the shape the retriever expects.
+ * The sidecar is a standalone FastAPI service that the user runs locally
+ * (see `backend/README.md`). It implements the recommended chunked-embedding
+ * + chunk-voting + domain-aware threshold pipeline.
+ *
+ * Configure its location via the env var `VAULTMIND_SIDECAR_URL`
+ * (e.g. `http://localhost:8000`). If the variable is unset OR the sidecar
+ * is unreachable, the retriever falls back to a pure-TS TF-IDF + concept-tag
+ * heuristic so the graph still renders.
  */
 
 export interface SidecarPage {
@@ -25,16 +29,15 @@ export interface SidecarResult {
 }
 
 /**
- * Resolve the absolute URL for a sidecar route. On Vercel `VERCEL_URL` is
- * always set in the runtime; locally `vercel dev` exposes the gateway on
- * port 3000 (the env vars `VERCELHOST`/`VERCEL_REGION` may not be set there).
+ * Resolve the absolute URL for a sidecar route. The user sets
+ * `VAULTMIND_SIDECAR_URL` to point at their running backend (e.g.
+ * `http://localhost:8000` for local dev). If unset, returns null and the
+ * caller will fall back to the TS-only similarity heuristic.
  */
-function sidecarUrl(path: string): string {
-  const fromEnv =
-    process.env.VAULTMIND_SIDECAR_BASE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "")
-  const base = fromEnv || "http://localhost:3000"
-  return `${base}${path}`
+function sidecarUrl(path: string): string | null {
+  const base = process.env.VAULTMIND_SIDECAR_URL
+  if (!base) return null
+  return `${base.replace(/\/+$/, "")}${path}`
 }
 
 /**
@@ -51,7 +54,11 @@ export async function buildSemanticEdgesViaSidecar(
   if (pages.length < 2) return { edges: [], stats: { skipped: "not enough pages" } }
 
   const { topK = 5, timeoutMs = 60_000, minChunksForVoting = 3 } = opts
-  const url = sidecarUrl("/api/sidecar/similarity/build-graph")
+  const url = sidecarUrl("/similarity/build-graph")
+  if (!url) {
+    // Sidecar not configured — the caller will fall back to TF-IDF.
+    return null
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
@@ -97,7 +104,8 @@ export async function buildSemanticEdgesViaSidecar(
  */
 export async function warmupSidecar(): Promise<void> {
   try {
-    const url = sidecarUrl("/api/sidecar/similarity/warmup")
+    const url = sidecarUrl("/similarity/warmup")
+    if (!url) return
     await fetch(url, { method: "POST" })
   } catch {
     // Warmup failure is non-fatal.
