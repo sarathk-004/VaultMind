@@ -12,6 +12,14 @@
  *
  * The fix: a multi-stage gated pipeline
  * ──────────────────────────────────────
+ *   0.  (Optional, when an LLM is reachable) Classify every page via the
+ *       Vercel AI Gateway into { primary_category, secondary_categories,
+ *       purpose }. See `lib/page-classifier.ts`. Pages in incompatible
+ *       primary categories with no "category bridge" are HARD-rejected.
+ *       This is the strongest gate — it catches pairs that the textual
+ *       signals can't separate (e.g. "Design in the Age of AI" tagged
+ *       primary=design vs "Stevens SOP" tagged primary=sop).
+ *
  *   1.  Vectorize every page (TF-IDF over title × 5 + body, with synonym
  *       expansion + stemming).
  *
@@ -28,13 +36,24 @@
  *         - same-cluster boolean
  *
  *   5.  Apply HARD GATES — an edge is rejected outright if:
- *         - It's cross-domain AND has zero concept overlap AND zero
- *           meaningful title overlap (≥ 4-char tokens) AND TF-IDF < 0.30.
- *           ← This is what kills "Design ↔ Stevens SOP".
- *         - It's cross-cluster AND combined score < 0.42.
+ *         - LLM-classified primaries are incompatible AND no category bridge
+ *           exists (gate 0 above). [LLM mode only]
+ *         - Cross-domain AND zero concept overlap AND zero meaningful title
+ *           overlap (≥ 4-char tokens) AND TF-IDF < 0.45.
+ *         - Both classified with no shared category → soft penalty (×0.65).
+ *         - Cross-cluster AND combined score < 0.36.
  *         - Combined score < 0.20 (absolute floor).
  *
- *   6.  Per-page top-K (k=3) on what survives, deduplicated as undirected.
+ *   6.  Apply BOOSTS when LLM classifications agree:
+ *         - Same primary_category AND same purpose → ×1.80
+ *         - Same primary_category                   → ×1.50
+ *         - Cross-bridge (one's primary ∈ other's all categories) → ×1.25
+ *         - Any category overlap                    → ×1.05
+ *
+ *   7.  Per-page top-K (k=3) on what survives, deduplicated as undirected.
+ *
+ * Target accuracy on a 130-page mixed-domain workspace: ≥ 85% (true edges
+ * preserved; false cross-domain edges suppressed).
  */
 
 // ── Concept taxonomy ────────────────────────────────────────────────────────
@@ -169,6 +188,94 @@ function areDomainsIncompatible(a: Set<string>, b: Set<string>): boolean {
     }
   }
   return false
+}
+
+// ── LLM classification incompatibility ─────────────────────────────────────
+// Pairs of `primary_category` values that should never link unless a
+// "category bridge" exists (one's primary appears in the other's secondary
+// list). This is the gate that makes the LLM signal authoritative — it
+// kills "Design (primary=design) ↔ Stevens SOP (primary=sop)" outright.
+const INCOMPATIBLE_LLM_PAIRS: Array<[string, string]> = [
+  ["design", "sop"], ["design", "lor"], ["design", "us_edu"],
+  ["design", "health"], ["design", "travel"], ["design", "books"],
+  ["design", "finance"], ["design", "research"], ["design", "daily"],
+  ["design", "personal"],
+  ["health", "sop"], ["health", "lor"], ["health", "us_edu"],
+  ["health", "ml"], ["health", "programming"], ["health", "research"],
+  ["health", "career"], ["health", "finance"], ["health", "books"],
+  ["travel", "sop"], ["travel", "lor"], ["travel", "us_edu"],
+  ["travel", "ml"], ["travel", "programming"], ["travel", "research"],
+  ["travel", "career"], ["travel", "finance"], ["travel", "design"],
+  ["finance", "sop"], ["finance", "lor"], ["finance", "ml"],
+  ["finance", "research"], ["finance", "us_edu"],
+  ["daily", "sop"], ["daily", "lor"], ["daily", "us_edu"],
+  ["daily", "ml"], ["daily", "programming"], ["daily", "research"],
+  ["daily", "design"], ["daily", "finance"], ["daily", "career"],
+  ["personal", "sop"], ["personal", "lor"], ["personal", "us_edu"],
+  ["personal", "ml"], ["personal", "programming"], ["personal", "research"],
+  ["personal", "design"],
+  ["books", "sop"], ["books", "lor"], ["books", "us_edu"], ["books", "career"],
+]
+const INCOMPATIBLE_LLM_SET = new Set(
+  INCOMPATIBLE_LLM_PAIRS.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]),
+)
+
+export interface LlmClassification {
+  primary_category: string
+  secondary_categories: string[]
+  purpose: string
+}
+
+/**
+ * Two pages are LLM-incompatible if and only if:
+ *   - their primary categories are different, AND
+ *   - neither primary appears in the other's full category set
+ *     (i.e. there is no "category bridge"), AND
+ *   - the (primary_a, primary_b) pair is on the incompatible list.
+ *
+ * Same-primary, bridge-match, and primaries not on the incompatible list are
+ * all considered compatible — those pairs proceed to the normal scoring.
+ */
+function areClassificationsIncompatible(
+  a: LlmClassification,
+  b: LlmClassification,
+): boolean {
+  if (a.primary_category === b.primary_category) return false
+  const allA = new Set([a.primary_category, ...a.secondary_categories])
+  const allB = new Set([b.primary_category, ...b.secondary_categories])
+  if (allB.has(a.primary_category) || allA.has(b.primary_category)) return false
+  return INCOMPATIBLE_LLM_SET.has(`${a.primary_category}|${b.primary_category}`)
+}
+
+/**
+ * Multiplicative score adjustment based on how well two classifications align.
+ * Returns 1.0 when no LLM information is available for either page.
+ */
+function classificationMultiplier(
+  a: LlmClassification | undefined,
+  b: LlmClassification | undefined,
+): number {
+  if (!a || !b) return 1.0
+
+  const primaryMatch = a.primary_category === b.primary_category
+  // "note" and "other" are catch-all purposes — same purpose by accident
+  // shouldn't earn a boost.
+  const purposeMatch =
+    a.purpose === b.purpose && a.purpose !== "other" && a.purpose !== "note"
+
+  const allA = new Set([a.primary_category, ...a.secondary_categories])
+  const allB = new Set([b.primary_category, ...b.secondary_categories])
+  const bridge =
+    allB.has(a.primary_category) || allA.has(b.primary_category)
+  let intersectionCount = 0
+  for (const x of allA) if (allB.has(x)) intersectionCount++
+
+  if (primaryMatch && purposeMatch) return 1.8
+  if (primaryMatch) return 1.5
+  if (bridge) return 1.25
+  if (intersectionCount > 0) return 1.05
+  // Both classified but no overlap at all → soft penalty.
+  return 0.65
 }
 
 // ── Light Porter-style stemmer ──────────────────────────────────────────────
@@ -371,12 +478,21 @@ export interface SimilarityDoc {
 /**
  * Build semantic edges over a workspace using the gated multi-stage
  * algorithm described at the top of this file.
+ *
+ * If `classifications` is provided (from `lib/page-classifier.ts`), the LLM
+ * categories act as the strongest signal — incompatible-primary pairs with
+ * no category bridge are rejected before any scoring runs, and matching
+ * pairs get multiplicative boosts.
  */
 export function buildSemanticEdges(
   docs: Map<string, SimilarityDoc>,
-  opts: { topK?: number; minScore?: number } = {},
+  opts: {
+    topK?: number
+    minScore?: number
+    classifications?: Map<string, LlmClassification>
+  } = {},
 ): SimilarityEdge[] {
-  const { topK = 3, minScore = 0.20 } = opts
+  const { topK = 3, minScore = 0.20, classifications } = opts
   const ids = Array.from(docs.keys())
   if (ids.length < 2) return []
 
@@ -453,12 +569,26 @@ export function buildSemanticEdges(
     const conceptsA = conceptsById.get(idA)!
     const clusterA = cluster.get(idA)
 
+    const classA = classifications?.get(idA)
+
     for (let j = i + 1; j < ids.length; j++) {
       const idB = ids[j]!
       const vb = vectors.get(idB)!
       const titleB = titleTokensById.get(idB)!
       const conceptsB = conceptsById.get(idB)!
       const clusterB = cluster.get(idB)
+      const classB = classifications?.get(idB)
+
+      // ── HARD GATE 0 (LLM): incompatible primaries with no bridge ──────
+      // Strongest gate. When the LLM classifies both pages and their
+      // primary categories are mutually exclusive (e.g. design × sop,
+      // health × ml) AND neither primary appears in the other's full
+      // category list, we reject the pair outright. No textual signal can
+      // override this — the LLM has explicitly said the pages aren't about
+      // the same thing.
+      if (classA && classB && areClassificationsIncompatible(classA, classB)) {
+        continue
+      }
 
       // Signal computation
       const conceptScore = jaccard(conceptsA, conceptsB)
@@ -467,7 +597,8 @@ export function buildSemanticEdges(
       const sameCluster = clusterA === clusterB
 
       // ── HARD GATE 1: incompatible domains with no bridge concept ──────
-      // Kills "Design in the Age of AI" ↔ "Stevens SOP" type links.
+      // Backstop for pages the LLM didn't classify or where classification
+      // returned "other". Keeps the rule-based safety net intact.
       if (areDomainsIncompatible(conceptsA, conceptsB)) {
         const meaningfulTitleOverlap = [...titleA].some(
           t => t.length >= 4 && titleB.has(t),
@@ -482,6 +613,10 @@ export function buildSemanticEdges(
 
       // Composite score
       let score = W_CONCEPT * conceptScore + W_TITLE * titleScore + W_TFIDF * tfidfScore
+
+      // ── LLM CLASSIFICATION BOOST ─────────────────────────────────────
+      // Boost (or penalize) based on how well the categories align.
+      score *= classificationMultiplier(classA, classB)
 
       // ── SOFT MODIFIERS ────────────────────────────────────────────────
       if (sameCluster) score *= 1.20 // boost same-cluster edges

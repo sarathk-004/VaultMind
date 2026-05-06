@@ -199,21 +199,32 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       })
     }
 
-    // Semantic edges via the Python similarity sidecar:
+    // ── LLM CLASSIFICATION ────────────────────────────────────────────────
+    // Ask the AI Gateway (zero-config: openai/gpt-5-mini) to assign every
+    // page a primary_category, secondary_categories, and purpose. Results
+    // are cached by content hash so re-fetches are essentially free.
     //
-    //   chunking → BGE-Small embeddings → FAISS ANN → chunk voting (top_k_mean
-    //   k=3) → domain-aware threshold → per-page top-K
+    // If the LLM is unreachable / errors / times out (45 s budget), the
+    // function returns null and the similarity layer still runs — it just
+    // falls back to its rule-based domain gates.
+    const { classifyPagesWithLLM } = await import("./page-classifier")
+    const classifications = await classifyPagesWithLLM(docTexts).catch(err => {
+      console.warn(
+        "[v0] LLM classifier threw — continuing without it:",
+        err instanceof Error ? err.message : err,
+      )
+      return null
+    })
+
+    // ── SEMANTIC EDGES ────────────────────────────────────────────────────
+    // Preferred path: Python sidecar (chunking → BGE-Small → FAISS → chunk
+    // voting → domain-aware threshold). Used when VAULTMIND_SIDECAR_URL is
+    // configured and reachable.
     //
-    // The chunk-voting step is the core fix for the "Stevens University ↔ Diet
-    // Plan" false-positive problem: a single shared word can no longer create
-    // an edge — three independent chunk pairs must agree the pages are similar
-    // before the gate opens. Domain-aware thresholds further cut cross-topic
-    // bleed (e.g. an `us_edu` page won't connect to a `health` page unless its
-    // chunks are exceptionally close, ≥ 0.62 cosine).
-    //
-    // If the sidecar is unreachable (cold start, dev without `vercel dev`, or
-    // a model still loading), we gracefully fall back to the in-process
-    // TF-IDF + concept tagging heuristic so the graph never breaks.
+    // Fallback path: in-process gated multi-stage pipeline (TF-IDF + K-Means
+    // + concept domains + LLM categories). The LLM classifications act as
+    // the strongest gate: incompatible primaries with no category bridge are
+    // rejected outright, matching primaries get up to a 1.8× boost.
     const { buildSemanticEdgesViaSidecar } = await import("./similarity-sidecar")
     const sidecarPayload = Array.from(docTexts.entries()).map(([id, d]) => ({
       id,
@@ -241,10 +252,12 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       semanticSource = "fallback"
       console.warn("[v0] Falling back to TF-IDF similarity (sidecar unavailable)")
       const { buildSemanticEdges } = await import("./page-similarity")
-      // topK / minScore left at module defaults (3 / 0.20) — the algorithm
-      // applies its own gates (incompatible-domain, cross-cluster, signal
-      // floor) so the absolute minScore is just a final safety net.
-      const fallbackPairs = buildSemanticEdges(docTexts, { topK: 3 })
+      // Pass classifications (may be null — that's fine, the algorithm just
+      // skips the LLM gate/boost in that case).
+      const fallbackPairs = buildSemanticEdges(docTexts, {
+        topK: 3,
+        classifications: classifications ?? undefined,
+      })
       for (const pair of fallbackPairs) {
         const before = edges.length
         addEdge(pair.from, pair.to, "relates to")
@@ -256,7 +269,8 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       `[v0] Built ${edges.length} edges (` +
         `${edges.length - linkEdgeCount - semanticEdgeCount} parent, ` +
         `${linkEdgeCount} explicit links, ` +
-        `${semanticEdgeCount} semantic [${semanticSource}])`,
+        `${semanticEdgeCount} semantic [${semanticSource}` +
+        `${classifications ? `, llm:${classifications.size}` : ""}])`,
     )
 
     // Cluster by connected component on the edge graph — every page that's
