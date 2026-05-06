@@ -150,7 +150,10 @@ export async function classifyLinkIntents(
     batchSize?: number
   } = {},
 ): Promise<Map<string, LinkIntentResult> | null> {
-  const { batchSize = 8, budgetMs = 60_000 } = opts
+  // Generous wall-clock cap. Per-provider timeouts inside lib/llm-client.ts
+  // (NIM 30 s, Gateway 45 s) are the primary safeguards; this just bounds
+  // the worst-case across many sequential batches.
+  const { batchSize = 8, budgetMs = 180_000 } = opts
   if (pairs.length === 0) return new Map()
 
   const results = new Map<string, LinkIntentResult>()

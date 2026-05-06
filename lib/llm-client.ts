@@ -19,14 +19,25 @@
  *     object that already passed Zod validation. They never need to know
  *     which provider was used.
  *
+ * Timeout / abort architecture:
+ *   - Each provider attempt gets its OWN fresh AbortController, with its
+ *     own per-attempt timeout (NIM: 30 s, Gateway: 45 s). This is the fix
+ *     for the previous cascade bug where a single shared budget signal,
+ *     once tripped by a slow NIM call, also instantly killed the Gateway
+ *     fallback ("Request was aborted." → "This operation was aborted.").
+ *   - The caller's `opts.signal` is honored: if it's already aborted we
+ *     bail out immediately, and we forward its abort into each per-attempt
+ *     controller so a real cancel still kills both providers.
+ *   - Internal NIM/Gateway aborts (timeouts, transient errors) NEVER
+ *     propagate to the next provider's signal — Gateway always starts
+ *     with a clean slate when NIM fails.
+ *
  * Robustness notes:
  *   - NIM models commonly wrap JSON in ```json fences even when asked for
  *     "ONLY JSON". `extractJson` strips fences, isolates the outer
  *     {...}/[...] block, and tries one repair pass before giving up.
  *   - If NIM returns malformed JSON or fails Zod validation, we fall back
  *     to the AI Gateway for that single call (not the whole batch).
- *   - All calls accept an AbortSignal so callers' budget timers still
- *     work end-to-end.
  */
 
 import OpenAI from "openai"
@@ -36,6 +47,11 @@ import { z } from "zod"
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 const NIM_MODEL = "minimaxai/minimax-m2.7"
 const GATEWAY_MODEL = "openai/gpt-5-mini"
+
+// Per-attempt timeouts. Decoupled so a slow NIM call can't eat the
+// fallback's time budget — Gateway always gets a fresh window.
+const NIM_TIMEOUT_MS = 30_000
+const GATEWAY_TIMEOUT_MS = 45_000
 
 // Lazy singleton — avoids constructing a client if no work is ever done.
 let nimClient: OpenAI | null = null
@@ -66,13 +82,30 @@ export interface StructuredOptions<T> {
 /**
  * Generate structured output validated by `schema`. Tries NVIDIA NIM first
  * (when configured), then falls back to the AI Gateway.
+ *
+ * Each provider attempt has its own AbortController so a NIM timeout
+ * cannot poison the Gateway fallback. Only the caller's `opts.signal`
+ * propagates across both attempts.
  */
 export async function generateStructured<T>(opts: StructuredOptions<T>): Promise<T> {
+  // If the caller has already given up, don't even start.
+  if (opts.signal?.aborted) {
+    throw new Error("generateStructured: caller signal already aborted")
+  }
+
   const client = getNimClient()
   if (client) {
     try {
-      return await callNim(client, opts)
+      return await withAttemptSignal(
+        opts.signal,
+        NIM_TIMEOUT_MS,
+        signal => callNim(client, { ...opts, signal }),
+      )
     } catch (err) {
+      // If the caller actually canceled, propagate — don't try again.
+      if (opts.signal?.aborted) {
+        throw err
+      }
       const msg = err instanceof Error ? err.message : String(err)
       console.warn(
         `[v0] NVIDIA NIM (${opts.label ?? "structured call"}) failed — ` +
@@ -80,7 +113,12 @@ export async function generateStructured<T>(opts: StructuredOptions<T>): Promise
       )
     }
   }
-  return await callGateway(opts)
+
+  return await withAttemptSignal(
+    opts.signal,
+    GATEWAY_TIMEOUT_MS,
+    signal => callGateway({ ...opts, signal }),
+  )
 }
 
 // ── NIM (OpenAI-compatible) ─────────────────────────────────────────────────
@@ -130,6 +168,41 @@ async function callGateway<T>(opts: StructuredOptions<T>): Promise<T> {
     abortSignal: opts.signal,
   })
   return output as T
+}
+
+// ── Per-attempt signal management ───────────────────────────────────────────
+
+/**
+ * Run `fn` with a fresh per-attempt AbortSignal that:
+ *   - aborts after `timeoutMs`
+ *   - aborts when `parent` aborts (so caller cancellation still works)
+ *
+ * The returned signal is NOT the same object as `parent`, so an internal
+ * abort from the NIM/Gateway SDK can't propagate back up into a shared
+ * signal that future attempts would inherit. This is the architectural
+ * fix for the cascade-abort bug.
+ */
+async function withAttemptSignal<T>(
+  parent: AbortSignal | undefined,
+  timeoutMs: number,
+  fn: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  const onParentAbort = () => ctrl.abort()
+  if (parent) {
+    if (parent.aborted) {
+      ctrl.abort()
+    } else {
+      parent.addEventListener("abort", onParentAbort, { once: true })
+    }
+  }
+  try {
+    return await fn(ctrl.signal)
+  } finally {
+    clearTimeout(timer)
+    if (parent) parent.removeEventListener("abort", onParentAbort)
+  }
 }
 
 // ── JSON extraction ─────────────────────────────────────────────────────────

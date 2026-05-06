@@ -248,7 +248,11 @@ export async function classifyPagesWithLLM(
   docs: Map<string, Doc>,
   opts: { signal?: AbortSignal; batchSize?: number; budgetMs?: number } = {},
 ): Promise<Map<string, PageClassification> | null> {
-  const { batchSize = 25, budgetMs = 45_000 } = opts
+  // Generous wall-clock cap so a multi-batch run isn't artificially killed
+  // by the OUTER budget. Per-provider timeouts inside lib/llm-client.ts
+  // (NIM 30 s, Gateway 45 s) are the primary safeguards; this just bounds
+  // the worst-case across many sequential batches.
+  const { batchSize = 25, budgetMs = 180_000 } = opts
   if (docs.size === 0) return new Map()
 
   const result = new Map<string, PageClassification>()
