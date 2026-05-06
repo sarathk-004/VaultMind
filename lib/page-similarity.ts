@@ -646,16 +646,18 @@ export async function buildSemanticEdges(
     vectors.set(id, vec)
   }
 
-  // 2. kMeans clusters — used only as the local pool definer when the LLM
-  //    is unavailable (or as a tie-breaker for "general" domain pages).
-  const k = Math.min(12, Math.max(3, Math.round(Math.sqrt(N / 2))))
+  // 2. kMeans clusters — used as a soft topical prior. We use FEWER clusters
+  //    than before (k = √(N/3) instead of √(N/2)) to create larger pools and
+  //    improve recall for related pages that might otherwise be split.
+  const k = Math.min(10, Math.max(3, Math.round(Math.sqrt(N / 3))))
   const cluster = kMeans(ids, vectors, k)
 
   // 3. Local-first candidate eligibility ────────────────────────────────────
   // When we have LLM classifications this is the single biggest precision
   // win — pages can only retrieve candidates from the same domain pool.
-  // When LLM is unavailable we fall back to kMeans clusters, which are
-  // looser but still help.
+  // When LLM is unavailable we use a MULTI-SIGNAL check: same cluster OR
+  // shared concepts OR strong TF-IDF similarity. This improves recall for
+  // related pages (e.g., ML pages, US pages) that kMeans might split.
   const hasAnyLLM = classifications && classifications.size > 0
   function inLocalPool(idA: string, idB: string): boolean {
     // Same Notion parent — always allowed (siblings).
@@ -670,11 +672,25 @@ export async function buildSemanticEdges(
       return domainBridgeAllowed(cA.domain, cB.domain)
     }
 
-    // No LLM (or partial) — fall back to kMeans cluster membership. This
-    // is looser than domain bridging but still groups topically similar
-    // pages together. We do NOT additionally require concept overlap here
-    // because that was filtering out too many valid candidates.
-    return cluster.get(idA) === cluster.get(idB)
+    // No LLM (or partial) — use a multi-signal check to avoid splitting
+    // genuinely related pages across clusters:
+    //   1. Same kMeans cluster → allowed
+    //   2. Shared concept tags (us_edu, ml, etc.) → allowed
+    //   3. High TF-IDF similarity (> 0.25) → allowed
+    // This is looser than pure cluster gating but still filters out most
+    // cross-domain noise.
+    if (cluster.get(idA) === cluster.get(idB)) return true
+
+    const conA = conceptsById.get(idA)!
+    const conB = conceptsById.get(idB)!
+    for (const c of conA) {
+      if (conB.has(c)) return true
+    }
+
+    // Last resort: if TF-IDF is high enough, allow the pair even without
+    // cluster or concept overlap (catches pages with sparse/no concepts).
+    const tfidf = dot(vectors.get(idA)!, vectors.get(idB)!)
+    return tfidf > 0.25
   }
 
   // 4. Pairwise scoring (split into topical / navigational) ────────────────
@@ -683,7 +699,7 @@ export async function buildSemanticEdges(
     score: number
     topical: number
     navigational: number
-    tier: "parent" | "domain" | "bridge"
+    tier: "parent" | "domain" | "concept" | "cluster" | "bridge"
   }
   const perNodeBest = new Map<string, Cand[]>()
   const ensure = (id: string) => {
@@ -763,33 +779,65 @@ export async function buildSemanticEdges(
         }
       }
 
+      // Same kMeans cluster is a soft navigational signal when LLM is absent.
+      const sameCluster = cluster.get(idA) === cluster.get(idB)
+
       const llmNavScore = classificationNavigationalScore(classA, classB)
 
-      const navigational =
-        W_NAV_PARENT * (sameParent ? 1 : 0) +
-        W_NAV_LINKS * sharedLinkScore +
-        W_NAV_LLM * llmNavScore
-
-      // ── Stage E: combine — navigational dominates by design ────────────
+      // When LLM is unavailable, we add cluster membership and concept
+      // overlap as navigational proxies — they're not as good as LLM domain/
+      // intent/audience, but they still help separate "related enough to
+      // link" from "happens to share words".
       const hasLLM = !!(classA && classB)
+      let navigational: number
+      if (hasLLM) {
+        navigational =
+          W_NAV_PARENT * (sameParent ? 1 : 0) +
+          W_NAV_LINKS * sharedLinkScore +
+          W_NAV_LLM * llmNavScore
+      } else {
+        // Without LLM: use cluster, parent, links, and concept overlap.
+        navigational =
+          0.30 * (sameParent ? 1 : 0) +
+          0.25 * sharedLinkScore +
+          0.25 * (sameCluster ? 1 : 0) +
+          0.20 * conceptScore // concept overlap as navigational proxy
+      }
+
+      // ── Stage E: combine ───────────────────────────────────────────────
+      // With LLM: navigational dominates (we trust the classifications).
+      // Without LLM: topical dominates (it's the only real signal we have),
+      // but navigational still contributes to boost same-cluster/concept pairs.
       const score = hasLLM
         ? 0.35 * topical + 0.65 * navigational
-        : 0.55 * topical + 0.45 * navigational
+        : 0.70 * topical + 0.30 * navigational
 
       // ── Stage F: tier + tiered floor ───────────────────────────────────
-      // When LLM classifications are available, we use strict tiered floors
-      // because the navigational signal is strong. Without LLM, the
-      // navigational component is mostly zero (no domain/intent/audience),
-      // so we use a single lower floor to avoid filtering everything out.
-      let tier: "parent" | "domain" | "bridge"
-      if (sameParent) tier = "parent"
-      else if (
-        hasLLM &&
-        classA!.domain &&
-        classA!.domain === classB!.domain &&
-        classA!.domain !== "general"
-      ) {
+      // Tiers represent relationship strength. Each tier has a floor that
+      // the combined score must exceed.
+      //
+      // With LLM:
+      //   parent (siblings)           → floor 0.25
+      //   domain (same LLM domain)    → floor 0.40
+      //   bridge (cross-domain)       → floor 0.55
+      //
+      // Without LLM:
+      //   parent (siblings)           → floor 0.12
+      //   concept (shared concept)    → floor 0.18
+      //   cluster (same kMeans)       → floor 0.22
+      //   bridge (everything else)    → floor 0.30
+      //
+      // The no-LLM floors are lower because our navigational signal is
+      // weaker, but we still use tiering to prefer stronger relationships.
+      let tier: "parent" | "domain" | "concept" | "cluster" | "bridge"
+      if (sameParent) {
+        tier = "parent"
+      } else if (hasLLM && classA!.domain === classB!.domain && classA!.domain !== "general") {
         tier = "domain"
+      } else if (!hasLLM && conceptScore > 0) {
+        tier = "concept" // shared concept tag (us_edu, ml, etc.)
+      } else if (!hasLLM && sameCluster) {
+        tier = "cluster"
       } else {
         tier = "bridge"
       }
@@ -799,10 +847,13 @@ export async function buildSemanticEdges(
         // Strict floors when LLM is available.
         floor = tier === "parent" ? 0.25 : tier === "domain" ? 0.40 : 0.55
       } else {
-        // Relaxed floors when LLM is unavailable — the navigational sub-score
-        // is basically zero in this case, so we rely on topical similarity
-        // with a lower threshold to avoid killing all edges.
-        floor = tier === "parent" ? 0.15 : 0.22
+        // Relaxed tiered floors for no-LLM mode.
+        switch (tier) {
+          case "parent":  floor = 0.12; break
+          case "concept": floor = 0.18; break
+          case "cluster": floor = 0.22; break
+          default:        floor = 0.30; break
+        }
       }
       if (score < floor) continue
 
@@ -812,21 +863,26 @@ export async function buildSemanticEdges(
   }
 
   // 5. Per-page top-K ───────────────────────────────────────────────────────
+  // Use a higher K when LLM is unavailable to improve recall — we compensate
+  // by relying on the tiered floors and reciprocal validation for precision.
+  const effectiveTopK = hasAnyLLM ? topK : Math.max(topK, 7)
   let totalCandidates = 0
   for (const arr of perNodeBest.values()) {
     totalCandidates += arr.length
     arr.sort((a, b) => b.score - a.score)
-    if (arr.length > topK) arr.length = topK
+    if (arr.length > effectiveTopK) arr.length = effectiveTopK
   }
   console.log(
     `[v0] Similarity: ${ids.length} pages, ${k} clusters, ` +
-    `hasLLM=${hasAnyLLM}, ${totalCandidates} candidates after scoring`,
+    `hasLLM=${hasAnyLLM}, topK=${effectiveTopK}, ${totalCandidates} candidates`,
   )
 
-  // 6. Reciprocal validation: only pairs that appear in BOTH sides' top-K
-  //    survive. One-sided enthusiasm = a page reaching for a "least bad"
-  //    neighbor when nothing else is available, which is exactly the
-  //    pattern that produced "Stevens SOP ↔ Design in the Age of AI".
+  // 6. Reciprocal validation: pairs that appear in BOTH sides' top-K are
+  //    strongly preferred. However, we also allow HIGH-SCORING one-sided
+  //    pairs (score >= 0.35 in no-LLM mode, 0.50 with LLM) to avoid losing
+  //    good edges where one page has many strong candidates and the other
+  //    doesn't make the cut.
+  const HIGH_SCORE_OVERRIDE = hasAnyLLM ? 0.50 : 0.35
   const candidatePairs = new Map<
     string,
     { idA: string; idB: string; score: number; tier: Cand["tier"] }
@@ -835,7 +891,12 @@ export async function buildSemanticEdges(
     for (const c of arr) {
       const idB = c.id
       const otherList = perNodeBest.get(idB)
-      if (!otherList || !otherList.some(o => o.id === idA)) continue
+      const isReciprocal = otherList && otherList.some(o => o.id === idA)
+      const isHighScore = c.score >= HIGH_SCORE_OVERRIDE
+
+      // Require either reciprocal match OR high score to proceed.
+      if (!isReciprocal && !isHighScore) continue
+
       const key = idA < idB ? `${idA}|${idB}` : `${idB}|${idA}`
       if (!candidatePairs.has(key)) {
         const a = idA < idB ? idA : idB
