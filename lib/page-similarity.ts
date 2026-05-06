@@ -23,18 +23,24 @@
  *
  *   2. LOCAL-FIRST RETRIEVAL — each page builds candidates only from its
  *      own pool: same domain (LLM), or same Notion parent, or same kMeans
- *      cluster when the LLM is offline. Cross-domain candidates are
- *      allowed only via the explicit DOMAIN_BRIDGES map. This single rule
- *      kills ~70 % of the false positives the previous pipeline produced.
+ *      cluster when the LLM is offline, OR the same concept family
+ *      (e.g. both have ml_* sub-concept tags). Cross-domain candidates
+ *      are allowed only via the explicit DOMAIN_BRIDGES map or shared
+ *      family. This single rule kills ~70 % of the false positives the
+ *      previous pipeline produced while still letting "Statistics for ML"
+ *      reach "LLM Notes" without sharing keywords.
  *
  *   3. HARD GATES — incompatible LLM primaries with no category bridge,
  *      incompatible concept domains with no concept overlap. No textual
  *      signal can override these.
  *
  *   4. SPLIT SCORING — for every surviving pair compute TWO scores:
- *        topical       = TF-IDF + concept overlap + title overlap
+ *        topical       = TF-IDF + concept overlap + title overlap +
+ *                        FAMILY overlap (both pages carry sub-concept
+ *                        tags from the same broad area, e.g. ML)
  *        navigational  = same-parent + shared outbound links + same-domain
- *                        + same-intent + same-audience + same-purpose
+ *                        + same-intent + same-audience + same-purpose +
+ *                        LLM-extracted topic Jaccard
  *      Final raw_score = 0.35 · topical + 0.65 · navigational  (LLM mode)
  *                      = 0.55 · topical + 0.45 · navigational  (no LLM)
  *      The navigational weight is intentionally larger — semantic
@@ -49,8 +55,11 @@
  *   6. TIERED THRESHOLDS — the floor depends on relationship type:
  *        same-parent : ≥ 0.25
  *        same-domain : ≥ 0.40
+ *        same-family : ≥ 0.45 (LLM mode), ≥ 0.18 (no LLM)
  *        bridge      : ≥ 0.55
- *      Cross-domain links require near certainty.
+ *      Cross-domain links require near certainty; same-family
+ *      relationships are a structurally-justified middle tier that
+ *      catches ML pages with disjoint sub-vocabularies.
  *
  *   7. RECIPROCAL VALIDATION — a pair survives only if A is in B's top-K
  *      candidates AND B is in A's top-K. One-sided enthusiasm is rejected.
@@ -69,6 +78,10 @@
  */
 
 // ── Concept taxonomy ────────────────────────────────────────────────────────
+// Broad concepts. A page gets one of these tags if ANY keyword matches —
+// even a single mention. Used as the first-pass topical signal. Because
+// they're permissive, they're NOT enough to imply "the page is really
+// about this topic"; that's what SUB_CONCEPT_PATTERNS below is for.
 const CONCEPT_PATTERNS: Record<string, RegExp> = {
   ml: /\b(ml|ai|machine[- ]?learning|deep[- ]?learning|neural[- ]?net|neural[- ]?network|llm|nlp|supervised|unsupervised|reinforcement|regression|classification|clustering|embedding|transformer|gpt|bert|pytorch|tensorflow|sklearn|kaggle|gradient|tensor|cnn|rnn|gan|attention|fine[- ]?tun|hyperparameter|overfit|backprop|optimizer|cross[- ]?validation|probability|statistics|linear[- ]?algebra|calculus|bayesian|markov|loss[- ]?function|feature[- ]?engineering)\b/i,
 
@@ -101,16 +114,102 @@ const CONCEPT_PATTERNS: Record<string, RegExp> = {
   productivity: /\b(productivity|focus|deep[- ]?work|pomodoro|gtd|note[- ]?taking|second[- ]?brain|zettelkasten|workflow|automation|tool|app)\b/i,
 }
 
+// ── Sub-concepts: specialized terminology ─────────────────────────────────
+// These require domain-specific vocabulary, not just a generic mention.
+// A page only qualifies for "family membership" if it carries at least one
+// sub-concept tag — that's the protection against incidental mentions
+// (e.g., a daily journal that says "learned ML today" gets the broad `ml`
+// tag but NO ml_* sub-concept, so it's not considered an ML page).
+const SUB_CONCEPT_PATTERNS: Record<string, RegExp> = {
+  // ML family — sub-topics within machine learning
+  ml_foundations: /\b(probability|probabilit|stochastic|distribution|hypothesis[- ]?test|bayes|bayesian|markov|gaussian|normal[- ]?distribution|variance|covariance|expectation|linear[- ]?algebra|matrix|eigen|calculus|gradient[- ]?descent|loss[- ]?function|cross[- ]?entropy|kl[- ]?divergence|maximum[- ]?likelihood|monte[- ]?carlo)\b/i,
+  ml_classical: /\b(regression|classification|clustering|svm|support[- ]?vector|random[- ]?forest|decision[- ]?tree|knn|k-?nearest|naive[- ]?bayes|logistic[- ]?regression|linear[- ]?regression|supervised|unsupervised|reinforcement[- ]?learning|gradient[- ]?boost|xgboost|lightgbm|pca|principal[- ]?component)\b/i,
+  ml_deep: /\b(neural[- ]?net|neural[- ]?network|deep[- ]?learning|cnn|convolutional|rnn|recurrent|lstm|gru|gan|generative[- ]?adversarial|autoencoder|backprop|backpropagation|activation|relu|sigmoid|softmax|dropout|batch[- ]?norm|layer[- ]?norm|residual|resnet|vgg|inception)\b/i,
+  ml_llm: /\b(llm|llms|large[- ]?language[- ]?model|gpt|gpt-?\d|bert|claude|llama|mistral|gemini|fine[- ]?tun|prompt|prompt[- ]?engineering|transformer|attention|self[- ]?attention|token|tokeniz|embedding|rag|retrieval[- ]?augmented|chat[- ]?bot|few[- ]?shot|zero[- ]?shot|in[- ]?context[- ]?learning|chain[- ]?of[- ]?thought|cot|instruct|alignment|rlhf|foundation[- ]?model)\b/i,
+  ml_nlp: /\b(nlp|natural[- ]?language|tokeniz|stemming|lemmatiz|named[- ]?entity|sentiment|word2vec|glove|fasttext|word[- ]?embed|seq2seq|sequence[- ]?to[- ]?sequence|machine[- ]?translation|text[- ]?classification|question[- ]?answer)\b/i,
+  ml_cv: /\b(computer[- ]?vision|image[- ]?recognition|object[- ]?detection|segmentation|yolo|opencv|image[- ]?classification|face[- ]?recognition|optical[- ]?flow)\b/i,
+  ml_tools: /\b(pytorch|tensorflow|keras|sklearn|scikit-?learn|kaggle|huggingface|hugging[- ]?face|jupyter|colab|wandb|weights[- ]?and[- ]?biases|mlflow|onnx|cuda|gpu)\b/i,
+
+  // US education family — sub-topics within US grad school
+  edu_admissions: /\b(admission|admit|reject|wait[- ]?list|application|apply|deadline|profile[- ]?evaluation|shortlist|target[- ]?school|safety[- ]?school|ambitious|reach|rolling)\b/i,
+  edu_university: /\b(stanford|mit|cmu|berkeley|princeton|harvard|yale|columbia|cornell|ucla|usc|gatech|uiuc|umich|nyu|northwestern|duke|caltech|brown|upenn|stevens|university|college|campus|department|faculty)\b/i,
+  edu_test: /\b(gre|gmat|toefl|ielts|verbal|quant|quantitative|awa|score|percentile|test[- ]?prep)\b/i,
+  edu_program: /\b(ms|msc|mba|phd|masters?|graduate|grad[- ]?school|fall[- ]?20\d\d|spring[- ]?20\d\d|fellowship|scholarship|gpa|transcript|stem|f-?1)\b/i,
+  edu_documents: /\b(sop|statement[- ]?of[- ]?purpose|lor|letter[- ]?of[- ]?recommendation|recommendation[- ]?letter|personal[- ]?statement|resume[- ]?for[- ]?ms|essay)\b/i,
+
+  // Programming family — sub-topics within software engineering
+  prog_web: /\b(react|next[- ]?js|vue|svelte|angular|html|css|tailwind|frontend|backend|full[- ]?stack|web[- ]?dev|http|rest|graphql|api|nodejs|node[- ]?js)\b/i,
+  prog_systems: /\b(systems?[- ]?design|distributed|microservice|kubernetes|docker|aws|gcp|azure|infrastructure|devops|ci[- ]?cd|deploy|scaling|load[- ]?balanc|cache|redis)\b/i,
+  prog_languages: /\b(python|javascript|typescript|java|rust|golang|c\+\+|cpp|swift|kotlin|ruby|php|scala|clojure)\b/i,
+  prog_dsa: /\b(algorithm|data[- ]?structure|leetcode|hackerrank|big[- ]?o|complexity|sort|binary[- ]?search|tree|graph|dynamic[- ]?programming|recursion|hash[- ]?table)\b/i,
+
+  // Career family — sub-topics within job/career
+  career_interview: /\b(interview|behavioral|system[- ]?design[- ]?interview|coding[- ]?round|on[- ]?site|technical[- ]?interview|mock[- ]?interview)\b/i,
+  career_search: /\b(job[- ]?search|application|recruiter|referral|cold[- ]?outreach|networking|linkedin|hiring|offer|negotiation|salary|compensation)\b/i,
+  career_prep: /\b(resume|cv|portfolio|profile|new[- ]?grad|intern|internship|swe|sde|engineer|developer)\b/i,
+}
+
+// ── Concept families: groups of related sub-concepts ─────────────────────
+// A page belongs to a "family" if it carries at least one sub-concept from
+// that family. Two pages in the same family are considered topically
+// related even if their specific sub-concepts differ — this is what makes
+// "Statistics for ML" link to "LLM Notes" despite having no shared
+// keywords (one's about probability theory, the other's about
+// transformers, but they're both ML pages).
+const CONCEPT_FAMILIES: Record<string, string[]> = {
+  ml: ["ml_foundations", "ml_classical", "ml_deep", "ml_llm", "ml_nlp", "ml_cv", "ml_tools"],
+  us_edu: ["edu_admissions", "edu_university", "edu_test", "edu_program", "edu_documents"],
+  programming: ["prog_web", "prog_systems", "prog_languages", "prog_dsa"],
+  career: ["career_interview", "career_search", "career_prep"],
+}
+
+// Reverse lookup: sub-concept → family.
+const SUB_TO_FAMILY = new Map<string, string>()
+for (const [family, members] of Object.entries(CONCEPT_FAMILIES)) {
+  for (const m of members) SUB_TO_FAMILY.set(m, family)
+}
+
+/**
+ * Given a page's concept tags, return the set of families it qualifies for.
+ * A page qualifies for family X iff it has at least one sub-concept that
+ * belongs to X. The bare top-level tag (e.g. plain `ml` from a single
+ * mention) is NOT enough — that's the protection against incidental
+ * vocabulary triggering false family membership.
+ */
+function getFamilies(concepts: Set<string>): Set<string> {
+  const fams = new Set<string>()
+  for (const c of concepts) {
+    const f = SUB_TO_FAMILY.get(c)
+    if (f) fams.add(f)
+  }
+  return fams
+}
+
 // ── Synonym expansion ───────────────────────────────────────────────────────
+// Maps abbreviations and short tokens to their expanded forms PLUS related
+// family vocabulary, so that pages using "LLM" tokenize alongside pages
+// using "transformer" or "machine learning" — they share at least the
+// "ml" / "ai" tokens after expansion. This is what gives TF-IDF a fighting
+// chance when two pages use different ML sub-vocabularies.
 const SYNONYM_MAP: Record<string, string> = {
+  // Education
   ms: "ms masters graduate university",
   msc: "msc masters graduate university",
   mba: "mba masters business graduate university",
   phd: "phd doctorate graduate university research",
-  ml: "ml machine learning",
-  dl: "dl deep learning",
-  ai: "ai artificial intelligence",
-  nlp: "nlp natural language processing",
+  // ML / AI — bidirectional family expansion so all ML pages share
+  // a common set of tokens regardless of sub-vocabulary.
+  ml: "ml ai machine learning",
+  dl: "dl ml ai deep learning neural",
+  ai: "ai ml artificial intelligence machine learning",
+  llm: "llm ai ml language model gpt transformer",
+  gpt: "gpt llm ai language model transformer",
+  bert: "bert llm ai language model transformer",
+  nlp: "nlp ai ml natural language processing",
+  rag: "rag llm ai retrieval augmented generation",
+  cnn: "cnn neural network deep learning",
+  rnn: "rnn neural network deep learning",
+  // Other technical abbreviations
   cv: "cv computer vision resume",
   ux: "ux user experience design",
   ui: "ui user interface design",
@@ -120,9 +219,11 @@ const SYNONYM_MAP: Record<string, string> = {
   cs: "cs computer science",
   ee: "ee electrical engineering",
   ce: "ce computer engineering",
+  // Geography / visa
   us: "us usa america united states",
   usa: "usa us america united states",
   uk: "uk britain england united kingdom",
+  // Test / admissions
   gre: "gre graduate exam test admission",
   gmat: "gmat business exam test admission",
   toefl: "toefl english exam test admission",
@@ -243,6 +344,11 @@ export interface LlmClassification {
   intent?: string
   /** Who the page is for (self, recruiters, admissions, …). */
   audience?: string
+  /** 3-7 specific topics extracted by the LLM (e.g. ["bayesian inference",
+   *  "linear regression", "hyperparameter tuning"]). Used as a finer-
+   *  grained navigational signal: two ML pages with overlapping topics
+   *  link more strongly than two ML pages with disjoint topics. */
+  topics?: string[]
 }
 
 // Approved cross-domain bridges. A page in domain X can retrieve candidates
@@ -303,11 +409,12 @@ function areClassificationsIncompatible(
  * amplify noise).
  *
  * Components (each contributes proportionally to its weight):
- *   - same domain        (0.40)  the strongest signal: same broad area
- *   - same intent        (0.25)  same functional purpose
- *   - same audience      (0.20)  written for the same reader
- *   - same purpose       (0.10)  same artifact type
- *   - any category bridge (0.05) one's primary appears in other's full set
+ *   - same domain        (0.35)  the strongest signal: same broad area
+ *   - same intent        (0.20)  same functional purpose
+ *   - same audience      (0.15)  written for the same reader
+ *   - same purpose       (0.08)  same artifact type
+ *   - topic Jaccard      (0.18)  LLM-extracted specific topics overlap
+ *   - any category bridge (0.04) one's primary appears in other's full set
  *
  * "other" / "note" / "general" values are treated as no-information and
  * never contribute — matching by fallback bucket is meaningless.
@@ -318,20 +425,34 @@ function classificationNavigationalScore(
 ): number {
   if (!a || !b) return 0
   let score = 0
-  if (a.domain && a.domain === b.domain && a.domain !== "general") score += 0.40
-  if (a.intent && a.intent === b.intent && a.intent !== "other") score += 0.25
-  if (a.audience && a.audience === b.audience && a.audience !== "other") score += 0.20
+  if (a.domain && a.domain === b.domain && a.domain !== "general") score += 0.35
+  if (a.intent && a.intent === b.intent && a.intent !== "other") score += 0.20
+  if (a.audience && a.audience === b.audience && a.audience !== "other") score += 0.15
   if (
     a.purpose === b.purpose &&
     a.purpose !== "other" &&
     a.purpose !== "note"
   ) {
-    score += 0.10
+    score += 0.08
+  }
+  // LLM-extracted topic overlap. Topics are normalized to lowercase and
+  // matched on stem-equality so "transformers" matches "transformer".
+  if (a.topics && b.topics && a.topics.length > 0 && b.topics.length > 0) {
+    const normA = new Set(a.topics.map(t => normalizeTopic(t)))
+    const normB = new Set(b.topics.map(t => normalizeTopic(t)))
+    const tj = jaccard(normA, normB)
+    score += 0.18 * tj
   }
   const allA = new Set([a.primary_category, ...a.secondary_categories])
   const allB = new Set([b.primary_category, ...b.secondary_categories])
-  if (allB.has(a.primary_category) || allA.has(b.primary_category)) score += 0.05
+  if (allB.has(a.primary_category) || allA.has(b.primary_category)) score += 0.04
   return Math.min(1, score)
+}
+
+/** Lower-case, strip punctuation, trim — used to normalize topic strings
+ *  before Jaccard so superficial differences don't fragment overlap. */
+function normalizeTopic(t: string): string {
+  return t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim()
 }
 
 // ── Light Porter-style stemmer ──────────────────────────────────────────────
@@ -376,8 +497,20 @@ function tokenize(text: string): string[] {
 
 function detectConcepts(text: string): Set<string> {
   const out = new Set<string>()
+  // Top-level concepts — permissive, can fire on a single mention.
   for (const [concept, pattern] of Object.entries(CONCEPT_PATTERNS)) {
     if (pattern.test(text)) out.add(concept)
+  }
+  // Sub-concepts — specialized vocabulary. When a sub-concept fires it
+  // ALSO implies the parent (e.g. detecting "transformer" tags both
+  // `ml_llm` and `ml`), so the broad-concept hard-gate logic continues
+  // to work even on pages whose body uses only specialized terms.
+  for (const [sub, pattern] of Object.entries(SUB_CONCEPT_PATTERNS)) {
+    if (pattern.test(text)) {
+      out.add(sub)
+      const parent = SUB_TO_FAMILY.get(sub)
+      if (parent) out.add(parent)
+    }
   }
   return out
 }
@@ -389,6 +522,18 @@ function jaccard<T>(a: Set<T>, b: Set<T>): number {
   for (const x of small) if (big.has(x)) inter++
   const union = a.size + b.size - inter
   return union === 0 ? 0 : inter / union
+}
+
+/**
+ * Family-level Jaccard. Pages "in the same family" (e.g. both have at
+ * least one ml_* sub-concept) score 1.0 here even when their specific
+ * sub-concepts are disjoint. This is the structural signal that lets
+ * "Statistics for ML" link to "LLM Notes" without sharing keywords.
+ */
+function familyJaccard(a: Set<string>, b: Set<string>): number {
+  const fa = getFamilies(a)
+  const fb = getFamilies(b)
+  return jaccard(fa, fb)
 }
 
 type SparseVec = Map<string, number>
@@ -646,16 +791,25 @@ export async function buildSemanticEdges(
     vectors.set(id, vec)
   }
 
-  // 2. kMeans clusters — used only as the local pool definer when the LLM
-  //    is unavailable (or as a tie-breaker for "general" domain pages).
+  // 2. kMeans clusters + family memberships ────────────────────────────────
+  // Clusters are the unsupervised "topical pool" prior. Family membership
+  // (derived from sub-concept tags) is the supervised one — pages with
+  // specialized ML / education / programming / career vocabulary are
+  // grouped into their respective family even when their kMeans clusters
+  // disagree (kMeans frequently splits ML pages across clusters because
+  // their sub-vocabularies — stats vs LLMs vs CV — are very different).
   const k = Math.min(12, Math.max(3, Math.round(Math.sqrt(N / 2))))
   const cluster = kMeans(ids, vectors, k)
+  const familiesById = new Map<string, Set<string>>()
+  for (const [id, concepts] of conceptsById) {
+    familiesById.set(id, getFamilies(concepts))
+  }
 
   // 3. Local-first candidate eligibility ────────────────────────────────────
-  // When we have LLM classifications this is the single biggest precision
-  // win — pages can only retrieve candidates from the same domain pool.
-  // When LLM is unavailable we fall back to kMeans clusters, which are
-  // looser but still help.
+  // With LLM: domain-pool retrieval (the strongest precision filter).
+  // Without LLM: same Notion parent OR same kMeans cluster OR same
+  //              concept family — family membership lets ML pages with
+  //              different sub-vocabularies still find each other.
   const hasAnyLLM = classifications && classifications.size > 0
   function inLocalPool(idA: string, idB: string): boolean {
     // Same Notion parent — always allowed (siblings).
@@ -667,14 +821,25 @@ export async function buildSemanticEdges(
     const cA = classifications?.get(idA)
     const cB = classifications?.get(idB)
     if (cA && cB) {
-      return domainBridgeAllowed(cA.domain, cB.domain)
+      // LLM domain bridge — strict.
+      if (domainBridgeAllowed(cA.domain, cB.domain)) return true
+      // Even when domains don't bridge directly, allow the pair if BOTH
+      // pages share a concept family (e.g. both are ML pages whose LLM
+      // domains were classified slightly differently). This adds recall
+      // without breaking the design ↔ sop hard-gate, because design
+      // pages don't accumulate ml_* sub-concept tags.
+      const fA = familiesById.get(idA)!
+      const fB = familiesById.get(idB)!
+      for (const f of fA) if (fB.has(f)) return true
+      return false
     }
 
-    // No LLM (or partial) — fall back to kMeans cluster membership. This
-    // is looser than domain bridging but still groups topically similar
-    // pages together. We do NOT additionally require concept overlap here
-    // because that was filtering out too many valid candidates.
-    return cluster.get(idA) === cluster.get(idB)
+    // No LLM — same cluster OR same family.
+    if (cluster.get(idA) === cluster.get(idB)) return true
+    const fA = familiesById.get(idA)!
+    const fB = familiesById.get(idB)!
+    for (const f of fA) if (fB.has(f)) return true
+    return false
   }
 
   // 4. Pairwise scoring (split into topical / navigational) ────────────────
@@ -683,7 +848,7 @@ export async function buildSemanticEdges(
     score: number
     topical: number
     navigational: number
-    tier: "parent" | "domain" | "bridge"
+    tier: "parent" | "domain" | "family" | "bridge"
   }
   const perNodeBest = new Map<string, Cand[]>()
   const ensure = (id: string) => {
@@ -696,14 +861,19 @@ export async function buildSemanticEdges(
   }
 
   // Topical-component weights (within the topical sub-score).
-  const W_TFIDF = 0.5
-  const W_CONCEPT = 0.3
-  const W_TITLE = 0.2
+  // Family overlap is the structural signal that two pages belong to the
+  // same broad area despite using different sub-vocabularies. It carries
+  // weight comparable to TF-IDF because TF-IDF is unreliable for ML pages
+  // whose specialized vocabularies barely overlap.
+  const W_TFIDF = 0.35
+  const W_CONCEPT = 0.25
+  const W_TITLE = 0.15
+  const W_FAMILY = 0.25
 
   // Navigational-component weights (within the navigational sub-score).
   const W_NAV_PARENT = 0.30
   const W_NAV_LINKS = 0.25
-  const W_NAV_LLM = 0.45 // distributes across domain/intent/audience/purpose/bridge
+  const W_NAV_LLM = 0.45 // distributes across domain/intent/audience/purpose/bridge/topics
 
   for (let i = 0; i < ids.length; i++) {
     const idA = ids[i]!
@@ -743,11 +913,22 @@ export async function buildSemanticEdges(
       const tfidfScore = dot(va, vb)
       const conceptScore = jaccard(conceptsA, conceptsB)
       const titleScore = jaccard(titleA, titleB)
+      const familyScore = familyJaccard(conceptsA, conceptsB)
       const topical =
-        W_TFIDF * tfidfScore + W_CONCEPT * conceptScore + W_TITLE * titleScore
+        W_TFIDF * tfidfScore +
+        W_CONCEPT * conceptScore +
+        W_TITLE * titleScore +
+        W_FAMILY * familyScore
 
       // Refuse pairs with literally zero shared concrete signal.
-      if (conceptScore === 0 && titleScore === 0 && tfidfScore < 0.20) continue
+      if (
+        conceptScore === 0 &&
+        titleScore === 0 &&
+        familyScore === 0 &&
+        tfidfScore < 0.20
+      ) {
+        continue
+      }
 
       // ── Stage D: navigational sub-score ────────────────────────────────
       const sameParent =
@@ -777,32 +958,46 @@ export async function buildSemanticEdges(
         : 0.55 * topical + 0.45 * navigational
 
       // ── Stage F: tier + tiered floor ───────────────────────────────────
-      // When LLM classifications are available, we use strict tiered floors
-      // because the navigational signal is strong. Without LLM, the
-      // navigational component is mostly zero (no domain/intent/audience),
-      // so we use a single lower floor to avoid filtering everything out.
-      let tier: "parent" | "domain" | "bridge"
-      if (sameParent) tier = "parent"
-      else if (
+      // Tiers reflect how strong the *structural* relationship is. A page
+      // that's a sibling (same Notion parent) gets the lowest floor; a
+      // family-aware "both belong to the ML / edu / programming family"
+      // pair gets a middle floor; cross-domain bridges get the strictest.
+      const strongFamily = familyScore >= 0.5
+      let tier: "parent" | "domain" | "family" | "bridge"
+      if (sameParent) {
+        tier = "parent"
+      } else if (
         hasLLM &&
         classA!.domain &&
         classA!.domain === classB!.domain &&
         classA!.domain !== "general"
       ) {
         tier = "domain"
+      } else if (strongFamily) {
+        tier = "family"
       } else {
         tier = "bridge"
       }
 
       let floor: number
       if (hasAnyLLM) {
-        // Strict floors when LLM is available.
-        floor = tier === "parent" ? 0.25 : tier === "domain" ? 0.40 : 0.55
+        // With LLM the navigational signal is strong, so floors stay strict.
+        switch (tier) {
+          case "parent":  floor = 0.25; break
+          case "domain":  floor = 0.40; break
+          case "family":  floor = 0.45; break
+          default:        floor = 0.55; break
+        }
       } else {
-        // Relaxed floors when LLM is unavailable — the navigational sub-score
-        // is basically zero in this case, so we rely on topical similarity
-        // with a lower threshold to avoid killing all edges.
-        floor = tier === "parent" ? 0.15 : 0.22
+        // Without LLM the navigational signal is weak, so we lean on the
+        // topical+family signal and use lower floors. The family tier is
+        // explicitly the route by which "Statistics for ML" can find
+        // "LLM Notes" without sharing TF-IDF terms.
+        switch (tier) {
+          case "parent":  floor = 0.15; break
+          case "family":  floor = 0.18; break
+          default:        floor = 0.22; break
+        }
       }
       if (score < floor) continue
 
@@ -823,10 +1018,14 @@ export async function buildSemanticEdges(
     `hasLLM=${hasAnyLLM}, ${totalCandidates} candidates after scoring`,
   )
 
-  // 6. Reciprocal validation: only pairs that appear in BOTH sides' top-K
-  //    survive. One-sided enthusiasm = a page reaching for a "least bad"
-  //    neighbor when nothing else is available, which is exactly the
-  //    pattern that produced "Stevens SOP ↔ Design in the Age of AI".
+  // 6. Reciprocal validation: pairs that appear in BOTH sides' top-K are
+  //    accepted directly. One-sided enthusiasm — A picks B but B doesn't
+  //    pick A back — is normally rejected because that's the pattern
+  //    behind hallucinated edges like "Stevens SOP ↔ Design in the Age
+  //    of AI". The single exception is parent-tier and family-tier pairs:
+  //    siblings and same-family pages have a strong structural reason to
+  //    link even if one side has many other strong candidates that pushed
+  //    the other out of its own top-K.
   const candidatePairs = new Map<
     string,
     { idA: string; idB: string; score: number; tier: Cand["tier"] }
@@ -835,7 +1034,13 @@ export async function buildSemanticEdges(
     for (const c of arr) {
       const idB = c.id
       const otherList = perNodeBest.get(idB)
-      if (!otherList || !otherList.some(o => o.id === idA)) continue
+      const reciprocal = !!otherList && otherList.some(o => o.id === idA)
+      // Allow non-reciprocal acceptance ONLY for tier=parent or tier=family
+      // — both are structurally justified relationships, not one-sided
+      // semantic enthusiasm. Bridge and domain tiers still require
+      // reciprocal endorsement.
+      const structuralBypass = c.tier === "parent" || c.tier === "family"
+      if (!reciprocal && !structuralBypass) continue
       const key = idA < idB ? `${idA}|${idB}` : `${idB}|${idA}`
       if (!candidatePairs.has(key)) {
         const a = idA < idB ? idA : idB

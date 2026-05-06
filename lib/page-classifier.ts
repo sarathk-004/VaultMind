@@ -132,6 +132,13 @@ export interface PageClassification {
   domain: PageDomain
   intent: PageIntent
   audience: PageAudience
+  /** 3-7 specific topics (lowercase, short phrases) extracted by the
+   *  LLM. Examples: ["bayesian inference", "linear regression"] for a
+   *  stats page; ["transformers", "fine-tuning", "rag"] for an LLM
+   *  page. Used as a fine-grained navigational overlap signal so two
+   *  pages in the same broad domain but with different sub-vocabularies
+   *  can still be recognized as topically related. */
+  topics: string[]
 }
 
 const ClassificationItem = z.object({
@@ -142,6 +149,7 @@ const ClassificationItem = z.object({
   domain: z.enum(PAGE_DOMAINS),
   intent: z.enum(PAGE_INTENTS),
   audience: z.enum(PAGE_AUDIENCES),
+  topics: z.array(z.string()),
 })
 
 const BatchResponse = z.object({
