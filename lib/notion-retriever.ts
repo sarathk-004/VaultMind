@@ -173,10 +173,17 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     // For every page, scan top-level blocks once to get BOTH:
     //  - explicit references (link_to_page, @mentions, child_page)
     //  - a plaintext snippet used for similarity scoring
+    //
+    // The explicit-reference list is also passed to the similarity layer
+    // as `linkTargets` — two pages that share outbound link targets are
+    // strong navigational neighbors even when their text doesn't overlap.
     const pageIds = Array.from(pages.keys())
     const BATCH = 8
     let linkEdgeCount = 0
-    const docTexts = new Map<string, { title: string; body: string }>()
+    const docTexts = new Map<
+      string,
+      { title: string; body: string; parentId?: string; linkTargets: string[] }
+    >()
 
     for (let i = 0; i < pageIds.length; i += BATCH) {
       const batch = pageIds.slice(i, i + BATCH)
@@ -188,13 +195,19 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       results.forEach((res, idx) => {
         const sourceId = batch[idx]
         const meta = pages.get(sourceId)
-        docTexts.set(sourceId, { title: meta?.title ?? "", body: res.text })
+        // Keep only link targets that point to other pages we know about —
+        // dangling targets are noise for the structural-overlap signal.
+        const knownTargets = res.ids.filter(t => pages.has(t))
+        docTexts.set(sourceId, {
+          title: meta?.title ?? "",
+          body: res.text,
+          parentId: meta?.parentId,
+          linkTargets: knownTargets,
+        })
 
-        for (const targetId of res.ids) {
-          if (pages.has(targetId)) {
-            addEdge(sourceId, targetId, "references")
-            linkEdgeCount++
-          }
+        for (const targetId of knownTargets) {
+          addEdge(sourceId, targetId, "references")
+          linkEdgeCount++
         }
       })
     }
@@ -221,10 +234,13 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     // voting → domain-aware threshold). Used when VAULTMIND_SIDECAR_URL is
     // configured and reachable.
     //
-    // Fallback path: in-process gated multi-stage pipeline (TF-IDF + K-Means
-    // + concept domains + LLM categories). The LLM classifications act as
-    // the strongest gate: incompatible primaries with no category bridge are
-    // rejected outright, matching primaries get up to a 1.8× boost.
+    // Fallback path: in-process pipeline. Stages, in order:
+    //   local-first retrieval → hard gates → topical+navigational scoring
+    //   → tiered thresholds → reciprocal validation → link-intent classifier
+    //   → graph-density cap.
+    // Classifications drive the local pools and the navigational sub-score
+    // (additive only — no multiplicative boosting). The link-intent
+    // classifier (lib/link-intent.ts) is the precision filter.
     const { buildSemanticEdgesViaSidecar } = await import("./similarity-sidecar")
     const sidecarPayload = Array.from(docTexts.entries()).map(([id, d]) => ({
       id,
@@ -250,13 +266,19 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       }
     } else {
       semanticSource = "fallback"
-      console.warn("[v0] Falling back to TF-IDF similarity (sidecar unavailable)")
-      const { buildSemanticEdges } = await import("./page-similarity")
-      // Pass classifications (may be null — that's fine, the algorithm just
-      // skips the LLM gate/boost in that case).
-      const fallbackPairs = buildSemanticEdges(docTexts, {
-        topK: 3,
+      console.warn("[v0] Falling back to in-process similarity (sidecar unavailable)")
+      const [{ buildSemanticEdges }, { classifyLinkIntents }] = await Promise.all([
+        import("./page-similarity"),
+        import("./link-intent"),
+      ])
+      // Only enable the LLM intent classifier when we have classifications
+      // to feed it — without page profiles its prompt is much weaker.
+      const fallbackPairs = await buildSemanticEdges(docTexts, {
+        topK: 5,
         classifications: classifications ?? undefined,
+        classifyLinkIntent: classifications ? classifyLinkIntents : undefined,
+        maxIntentPairs: 200,
+        maxDegreePerNode: 8,
       })
       for (const pair of fallbackPairs) {
         const before = edges.length

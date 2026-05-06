@@ -2,25 +2,32 @@
  * LLM-powered page classifier.
  *
  * Given a workspace's pages, ask an LLM (Vercel AI Gateway → openai/gpt-5-mini,
- * zero-config) to assign each page:
- *   - primary_category   : the single most important topic
+ * zero-config) to assign each page a structured profile:
+ *
+ *   - primary_category    : the single most important fine-grained topic
  *   - secondary_categories: 0-3 additional topics that meaningfully appear
- *   - purpose            : what kind of artifact this is (sop, roadmap, idea, …)
+ *   - purpose             : the artifact type (sop, roadmap, idea, …)
+ *   - domain              : BROAD topical area used for local-first retrieval
+ *                           (engineering, education, lifestyle, …). Pages
+ *                           only consider candidates in the same domain or
+ *                           in an approved cross-domain bridge.
+ *   - intent              : what the page is for (planning, automation,
+ *                           application, learning, …). Same intent is a
+ *                           strong navigational signal even across topics.
+ *   - audience            : who the page is for (self, recruiters, …).
+ *                           Mismatched audience is a strong negative signal.
  *
- * The classification is then fed into `lib/page-similarity.ts` where it acts
- * as the dominant signal:
- *   - Same primary + same purpose → strong boost (×1.8)
- *   - Same primary OR cross-bridge match → boost (×1.25–1.5)
- *   - No category overlap AND incompatible primaries → HARD REJECT
- *
- * This is what kills "Design in the Age of AI" ↔ "Stevens SOP" links: the LLM
- * tags the first as primary=design and the second as primary=sop. The pair has
- * zero category bridge, design×sop is on the incompatible list, → rejected.
+ * `domain` / `intent` / `audience` are NOT used for multiplicative score
+ * boosting (the methodology forbids that — it amplifies noise). They drive
+ * LOCAL-FIRST CANDIDATE RETRIEVAL: a page can only consider candidates from
+ * its own pool, killing roughly 70% of cross-topic false positives like
+ * "Design in the Age of AI" ↔ "Stevens SOP" before any scoring runs.
  *
  * Calls are batched (≤25 pages per request) and cached in-memory by a hash
- * of (title + body prefix) so re-fetches don't re-classify. If anything in
- * the LLM call fails or times out, the function returns `null` and the
- * downstream similarity logic falls back to its built-in rule-based gates.
+ * of (title + body prefix) so re-fetches don't re-classify. If the LLM is
+ * unreachable / errors / times out (45 s budget), the function returns
+ * `null` and the downstream similarity logic falls back to k-Means cluster
+ * pools and rule-based concept gates.
  */
 
 import { generateText, Output } from "ai"
@@ -66,10 +73,65 @@ export const PAGE_PURPOSES = [
 
 export type PagePurpose = (typeof PAGE_PURPOSES)[number]
 
+// Broad topical buckets used for LOCAL-FIRST candidate retrieval.
+// Pages can only retrieve candidates from the same domain (or an approved
+// cross-domain bridge). This is the strongest precision filter — it kills
+// the vast majority of cross-topic false positives.
+export const PAGE_DOMAINS = [
+  "personal",     // self, family, life events, journals, gratitude
+  "education",    // grad school, courses, university comparisons
+  "engineering",  // SWE, programming, ML practice, systems, infra
+  "research",     // academic papers, methodology, hypotheses
+  "creative",     // design, writing, art as a discipline
+  "lifestyle",    // health, fitness, travel, food, books-for-leisure
+  "career",       // jobs, interviews, resumes, hiring
+  "finance",      // money, investing, budgeting
+  "general",      // ambiguous / multi-domain
+] as const
+
+export type PageDomain = (typeof PAGE_DOMAINS)[number]
+
+// What the page is FOR. Same intent is a strong navigational signal:
+// two "planning" pages in the same domain are likely linked workflow steps.
+export const PAGE_INTENTS = [
+  "self_improvement",
+  "automation",
+  "application",      // applying for X (job, school, grant)
+  "learning",
+  "planning",
+  "documentation",
+  "exploration",      // brainstorming, free-form thinking
+  "tracking",         // logs, habits, metrics
+  "communication",    // letters, messages, emails
+  "decision_making",  // comparisons, pros/cons
+  "other",
+] as const
+
+export type PageIntent = (typeof PAGE_INTENTS)[number]
+
+// Who the page is for. Cross-audience pairs (e.g. self vs recruiters) are
+// a strong signal that they shouldn't be linked even if topically similar.
+export const PAGE_AUDIENCES = [
+  "self",
+  "team",
+  "developers",
+  "recruiters",
+  "admissions",  // grad-school admissions committees
+  "professors",
+  "clients",
+  "public",
+  "other",
+] as const
+
+export type PageAudience = (typeof PAGE_AUDIENCES)[number]
+
 export interface PageClassification {
   primary_category: PageCategory
   secondary_categories: PageCategory[]
   purpose: PagePurpose
+  domain: PageDomain
+  intent: PageIntent
+  audience: PageAudience
 }
 
 const ClassificationItem = z.object({
@@ -77,24 +139,24 @@ const ClassificationItem = z.object({
   primary_category: z.enum(PAGE_CATEGORIES),
   secondary_categories: z.array(z.enum(PAGE_CATEGORIES)),
   purpose: z.enum(PAGE_PURPOSES),
+  domain: z.enum(PAGE_DOMAINS),
+  intent: z.enum(PAGE_INTENTS),
+  audience: z.enum(PAGE_AUDIENCES),
 })
 
 const BatchResponse = z.object({
   classifications: z.array(ClassificationItem),
 })
 
-const SYSTEM_PROMPT = `You are a Notion workspace classifier. For each page (id, title, snippet) assign:
-  - primary_category: the SINGLE most important topic
-  - secondary_categories: 0-3 additional topics that genuinely appear (do not pad)
-  - purpose: the kind of artifact
+const SYSTEM_PROMPT = `You are a Notion workspace classifier. For each page (id, title, snippet) assign a structured profile.
 
-Categories:
+primary_category — the SINGLE most important fine-grained topic:
   ml          machine learning, AI, NLP, deep learning, models, training, data science
   us_edu      US grad school admissions, GRE/TOEFL, university comparisons, MS programs
   sop         the Statement-of-Purpose ESSAY itself for a grad school application
   lor         a Letter-of-Recommendation document
   career      jobs, interviews, resumes, FAANG prep, hiring, career planning
-  design      UX/UI/product/visual design as a discipline (NOT generic "design" used metaphorically)
+  design      UX/UI/product/visual design as a discipline (NOT "design" used metaphorically)
   programming software engineering, code, frameworks, web/mobile/systems
   finance     personal finance, investing, budgeting, money management
   health      fitness, diet, exercise, sleep, wellness
@@ -107,19 +169,59 @@ Categories:
   personal    relationships, family, life events, anything intimate
   other       does not fit any of the above
 
-Purposes:
+secondary_categories — 0-3 additional topics that GENUINELY appear (don't pad).
+
+purpose — the artifact type:
   roadmap, sop, lor, note, idea, comparison, summary, todo, journal,
   reference, tutorial, essay, other
 
-Critical rules:
-  1. A "Design in the Age of AI" page is primary=design with secondary=[ml, ideas].
-     It is NOT a us_edu / sop / lor page even though it mentions AI.
-  2. A Stevens University SOP for ML is primary=sop with secondary=[us_edu, ml].
-  3. An ML Roadmap is primary=ml with secondary=[career, ideas] if it discusses careers.
-  4. A page comparing US universities is primary=us_edu with purpose=comparison.
-  5. Be CONSERVATIVE with secondary_categories — only include if the topic is
-     clearly and substantively present, not just incidentally mentioned.
-  6. If unsure, prefer "other" over a wrong specific category.
+domain — BROAD topical area for local-first retrieval. Pages can only link
+to other pages in the same domain (or an approved cross-domain bridge):
+  personal     self, family, life events, journals, gratitude, intimate notes
+  education    grad school, university comparisons, courses, learning programs
+  engineering  SWE, programming, ML practice, systems, infrastructure, tools
+  research     academic papers, methodology, hypotheses, literature reviews
+  creative     UX/UI/product design, writing, art, visual creative work
+  lifestyle    health, fitness, travel, food, books read for leisure
+  career       jobs, interviews, resumes, hiring, career planning
+  finance      money, investing, budgeting
+  general      genuinely multi-domain or ambiguous
+
+intent — what the page is FOR (functional purpose):
+  self_improvement, automation, application, learning, planning, documentation,
+  exploration, tracking, communication, decision_making, other
+
+audience — who the page is for:
+  self, team, developers, recruiters, admissions, professors, clients, public, other
+
+Critical examples:
+  1. "Design in the Age of AI" essay
+       primary_category=design, domain=creative, intent=exploration,
+       audience=self, purpose=essay.
+       It is NOT in domain=education even though it mentions AI.
+  2. "Stevens University SOP for MS in CS"
+       primary_category=sop, domain=education, intent=application,
+       audience=admissions, purpose=sop.
+  3. "Health Plan Q3"
+       primary_category=health, domain=lifestyle, intent=planning,
+       audience=self, purpose=roadmap.
+  4. "HackerRank Orchestrator"
+       primary_category=programming, domain=engineering, intent=automation,
+       audience=developers, purpose=tool/reference.
+       (Health Plan and HackerRank Orchestrator share the words "system",
+       "tracking", "planning" — but their domain/intent/audience triples
+       are completely different and they MUST NOT be linked.)
+  5. "ML Roadmap"
+       primary_category=ml, domain=engineering, intent=learning OR planning,
+       audience=self, purpose=roadmap.
+
+Rules:
+  - Be CONSERVATIVE with secondary_categories — only include if the topic
+    is clearly and substantively present, not just incidentally mentioned.
+  - "general" domain is a last resort. Try hard to pick a specific domain.
+  - "other" / "note" purposes are fallbacks for genuinely shapeless pages.
+  - If unsure between two specific values, pick the one that BEST describes
+    what a user would expect when navigating to this page.
 
 Return JSON matching the schema. Include EVERY input page in the output.`
 
@@ -191,6 +293,9 @@ export async function classifyPagesWithLLM(
           primary_category: cls.primary_category,
           secondary_categories: cls.secondary_categories,
           purpose: cls.purpose,
+          domain: cls.domain,
+          intent: cls.intent,
+          audience: cls.audience,
         }
         cache.set(orig.key, stored)
         result.set(cls.id, stored)
