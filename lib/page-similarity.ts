@@ -652,28 +652,29 @@ export async function buildSemanticEdges(
   const cluster = kMeans(ids, vectors, k)
 
   // 3. Local-first candidate eligibility ────────────────────────────────────
-  // The single biggest precision win. A pair is even allowed to compete
-  // for an edge only if it lives in the same local pool: same Notion
-  // parent, same LLM domain (or approved bridge), or — when LLM info is
-  // missing — same kMeans cluster with a non-trivial concept overlap.
+  // When we have LLM classifications this is the single biggest precision
+  // win — pages can only retrieve candidates from the same domain pool.
+  // When LLM is unavailable we fall back to kMeans clusters, which are
+  // looser but still help.
+  const hasAnyLLM = classifications && classifications.size > 0
   function inLocalPool(idA: string, idB: string): boolean {
+    // Same Notion parent — always allowed (siblings).
     const pA = parentById.get(idA)
     const pB = parentById.get(idB)
     if (pA && pB && pA === pB) return true
 
+    // If we have LLM for both, use domain bridging.
     const cA = classifications?.get(idA)
     const cB = classifications?.get(idB)
     if (cA && cB) {
       return domainBridgeAllowed(cA.domain, cB.domain)
     }
 
-    // No LLM for at least one side — fall back to cluster + concept check.
-    if (cluster.get(idA) === cluster.get(idB)) return true
-    const conA = conceptsById.get(idA)!
-    const conB = conceptsById.get(idB)!
-    if (conA.size === 0 || conB.size === 0) return false
-    for (const c of conA) if (conB.has(c)) return true
-    return false
+    // No LLM (or partial) — fall back to kMeans cluster membership. This
+    // is looser than domain bridging but still groups topically similar
+    // pages together. We do NOT additionally require concept overlap here
+    // because that was filtering out too many valid candidates.
+    return cluster.get(idA) === cluster.get(idB)
   }
 
   // 4. Pairwise scoring (split into topical / navigational) ────────────────
@@ -776,6 +777,10 @@ export async function buildSemanticEdges(
         : 0.55 * topical + 0.45 * navigational
 
       // ── Stage F: tier + tiered floor ───────────────────────────────────
+      // When LLM classifications are available, we use strict tiered floors
+      // because the navigational signal is strong. Without LLM, the
+      // navigational component is mostly zero (no domain/intent/audience),
+      // so we use a single lower floor to avoid filtering everything out.
       let tier: "parent" | "domain" | "bridge"
       if (sameParent) tier = "parent"
       else if (
@@ -789,7 +794,16 @@ export async function buildSemanticEdges(
         tier = "bridge"
       }
 
-      const floor = tier === "parent" ? 0.25 : tier === "domain" ? 0.40 : 0.55
+      let floor: number
+      if (hasAnyLLM) {
+        // Strict floors when LLM is available.
+        floor = tier === "parent" ? 0.25 : tier === "domain" ? 0.40 : 0.55
+      } else {
+        // Relaxed floors when LLM is unavailable — the navigational sub-score
+        // is basically zero in this case, so we rely on topical similarity
+        // with a lower threshold to avoid killing all edges.
+        floor = tier === "parent" ? 0.15 : 0.22
+      }
       if (score < floor) continue
 
       ensure(idA).push({ id: idB, score, topical, navigational, tier })
@@ -798,10 +812,16 @@ export async function buildSemanticEdges(
   }
 
   // 5. Per-page top-K ───────────────────────────────────────────────────────
+  let totalCandidates = 0
   for (const arr of perNodeBest.values()) {
+    totalCandidates += arr.length
     arr.sort((a, b) => b.score - a.score)
     if (arr.length > topK) arr.length = topK
   }
+  console.log(
+    `[v0] Similarity: ${ids.length} pages, ${k} clusters, ` +
+    `hasLLM=${hasAnyLLM}, ${totalCandidates} candidates after scoring`,
+  )
 
   // 6. Reciprocal validation: only pairs that appear in BOTH sides' top-K
   //    survive. One-sided enthusiasm = a page reaching for a "least bad"
@@ -824,6 +844,10 @@ export async function buildSemanticEdges(
       }
     }
   }
+
+  console.log(
+    `[v0] Similarity: ${candidatePairs.size} pairs after reciprocal validation`,
+  )
 
   // 7. Link intent classifier — the precision filter ───────────────────────
   let intentVerdicts:
@@ -900,5 +924,6 @@ export async function buildSemanticEdges(
     degree.set(info.idB, dB + 1)
   }
 
+  console.log(`[v0] Similarity: returning ${out.length} semantic edges`)
   return out
 }

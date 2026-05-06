@@ -310,9 +310,13 @@ export async function classifyPagesWithLLM(
     )
     return result
   } catch (err) {
+    // Log the full error for debugging (403 = AI Gateway auth issue, etc.)
+    const msg = err instanceof Error ? err.message : String(err)
+    const is403 = msg.includes("403") || msg.includes("Forbidden")
     console.warn(
-      "[v0] LLM classifier failed — downstream similarity will use rule-based gates only:",
-      err instanceof Error ? err.message : err,
+      `[v0] LLM classifier failed${is403 ? " (AI Gateway 403 — check API key or model access)" : ""} — ` +
+      `downstream similarity will use kMeans + concept gates:`,
+      msg,
     )
     return null
   } finally {
