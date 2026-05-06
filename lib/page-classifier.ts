@@ -30,8 +30,8 @@
  * pools and rule-based concept gates.
  */
 
-import { generateText, Output } from "ai"
 import { z } from "zod"
+import { generateStructured, activeLlmProvider } from "./llm-client"
 
 export const PAGE_CATEGORIES = [
   "ml",
@@ -276,7 +276,8 @@ export async function classifyPagesWithLLM(
   const signal = composeSignals(opts.signal, overallController.signal)
 
   console.log(
-    `[v0] LLM classifier: classifying ${todo.length} pages (${docs.size - todo.length} cached) in ${Math.ceil(todo.length / batchSize)} batches`,
+    `[v0] LLM classifier (${activeLlmProvider()}): classifying ${todo.length} pages ` +
+      `(${docs.size - todo.length} cached) in ${Math.ceil(todo.length / batchSize)} batches`,
   )
 
   try {
@@ -286,12 +287,12 @@ export async function classifyPagesWithLLM(
         .map(d => `[id=${d.id}]\nTitle: ${d.title}\nSnippet: ${truncate(d.body, 600)}`)
         .join("\n\n---\n\n")
 
-      const { output } = await generateText({
-        model: "openai/gpt-5-mini",
-        output: Output.object({ schema: BatchResponse }),
+      const output = await generateStructured({
+        schema: BatchResponse,
         system: SYSTEM_PROMPT,
         prompt: userPrompt,
-        abortSignal: signal,
+        signal,
+        label: `classifier batch ${i / batchSize + 1}`,
       })
 
       for (const cls of output.classifications) {
@@ -304,6 +305,7 @@ export async function classifyPagesWithLLM(
           domain: cls.domain,
           intent: cls.intent,
           audience: cls.audience,
+          topics: cls.topics,
         }
         cache.set(orig.key, stored)
         result.set(cls.id, stored)
@@ -318,11 +320,14 @@ export async function classifyPagesWithLLM(
     )
     return result
   } catch (err) {
-    // Log the full error for debugging (403 = AI Gateway auth issue, etc.)
     const msg = err instanceof Error ? err.message : String(err)
     const is403 = msg.includes("403") || msg.includes("Forbidden")
+    const is401 = msg.includes("401") || msg.includes("Unauthorized")
+    const hint = is401 || is403
+      ? " (check NVIDIA_NIM_API_KEY or AI Gateway access)"
+      : ""
     console.warn(
-      `[v0] LLM classifier failed${is403 ? " (AI Gateway 403 — check API key or model access)" : ""} — ` +
+      `[v0] LLM classifier failed${hint} — ` +
       `downstream similarity will use kMeans + concept gates:`,
       msg,
     )

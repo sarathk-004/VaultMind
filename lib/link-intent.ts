@@ -29,9 +29,9 @@
  * pipeline still has its hard gates and tiered thresholds).
  */
 
-import { generateText, Output } from "ai"
 import { z } from "zod"
 import type { PageClassification } from "./page-classifier"
+import { generateStructured, activeLlmProvider } from "./llm-client"
 
 export type LinkIntentLabel = "yes" | "weak_yes" | "no"
 
@@ -177,7 +177,7 @@ export async function classifyLinkIntents(
   const signal = composeSignals(opts.signal, overallController.signal)
 
   console.log(
-    `[v0] Link intent: classifying ${todo.length} pairs ` +
+    `[v0] Link intent (${activeLlmProvider()}): classifying ${todo.length} pairs ` +
       `(${pairs.length - todo.length} cached) in ` +
       `${Math.ceil(todo.length / batchSize)} batches`,
   )
@@ -191,12 +191,12 @@ export async function classifyLinkIntents(
         .map((p, idx) => formatPairForPrompt(p, idx))
         .join("\n\n")
 
-      const { output } = await generateText({
-        model: "openai/gpt-5-mini",
-        output: Output.object({ schema: BatchResponse }),
+      const output = await generateStructured({
+        schema: BatchResponse,
         system: SYSTEM_PROMPT,
         prompt: userPrompt,
-        abortSignal: signal,
+        signal,
+        label: `link-intent batch ${i / batchSize + 1}`,
       })
 
       // Index returned items by their input key so we can correlate.
