@@ -241,7 +241,10 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       semanticSource = "fallback"
       console.warn("[v0] Falling back to TF-IDF similarity (sidecar unavailable)")
       const { buildSemanticEdges } = await import("./page-similarity")
-      const fallbackPairs = buildSemanticEdges(docTexts, { topK: 3, minScore: 0.22 })
+      // topK / minScore left at module defaults (3 / 0.20) — the algorithm
+      // applies its own gates (incompatible-domain, cross-cluster, signal
+      // floor) so the absolute minScore is just a final safety net.
+      const fallbackPairs = buildSemanticEdges(docTexts, { topK: 3 })
       for (const pair of fallbackPairs) {
         const before = edges.length
         addEdge(pair.from, pair.to, "relates to")

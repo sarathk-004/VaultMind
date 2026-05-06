@@ -1,31 +1,47 @@
 /**
  * Multi-signal page similarity for Notion workspaces.
  *
- * Pure TF-IDF fails on Notion titles because:
- *   - Titles are short (1-4 words) so vectors are sparse
- *   - "MS" and "Masters" share no characters → cosine = 0
- *   - "Idea" and "Ideas" are different tokens without stemming
- *   - Rare terms (df < 2) are correctly dropped, but those rare terms
- *     are exactly the topical anchors we need for grouping.
+ * Why pure TF-IDF and pure concept tagging both fail
+ * ───────────────────────────────────────────────────
+ * - TF-IDF on Notion titles is too sparse (1-4 words, no shared tokens).
+ * - Concept regexes alone miss everything not in the taxonomy.
+ * - Combining them with a top-K threshold creates *false positives* like
+ *   "Design in the Age of AI" linking to "Stevens SOP" — they share zero
+ *   concepts, zero title tokens, and only trace TF-IDF noise, yet top-K
+ *   forces an edge anyway because it's the "least bad" option for that page.
  *
- * This module fuses three orthogonal signals:
- *   1. Concept tagging  — regex patterns map text → topical concepts
- *   2. Title overlap    — Jaccard over stemmed title tokens
- *   3. TF-IDF cosine    — over (title × 5 + body), with synonym expansion
- *                         and Porter-lite stemming, KEEPING rare terms.
+ * The fix: a multi-stage gated pipeline
+ * ──────────────────────────────────────
+ *   1.  Vectorize every page (TF-IDF over title × 5 + body, with synonym
+ *       expansion + stemming).
  *
- * Final score = 0.45·concept + 0.20·title + 0.35·tfidf, with per-page
- * top-K edge selection (no global threshold) so every page connects to
- * its closest neighbours regardless of absolute score.
+ *   2.  Run K-Means (cosine distance, k = √(n/2) bounded [3, 12]) on those
+ *       vectors. Cluster IDs are a soft topical prior — pages in different
+ *       clusters require a much higher similarity score to link.
+ *
+ *   3.  Tag every page with concept domains via regex patterns.
+ *
+ *   4.  For each candidate pair (a, b) compute four signals:
+ *         - concept Jaccard
+ *         - title-token Jaccard (stemmed)
+ *         - TF-IDF cosine
+ *         - same-cluster boolean
+ *
+ *   5.  Apply HARD GATES — an edge is rejected outright if:
+ *         - It's cross-domain AND has zero concept overlap AND zero
+ *           meaningful title overlap (≥ 4-char tokens) AND TF-IDF < 0.30.
+ *           ← This is what kills "Design ↔ Stevens SOP".
+ *         - It's cross-cluster AND combined score < 0.42.
+ *         - Combined score < 0.20 (absolute floor).
+ *
+ *   6.  Per-page top-K (k=3) on what survives, deduplicated as undirected.
  */
 
 // ── Concept taxonomy ────────────────────────────────────────────────────────
-// Each concept is a regex of keywords/phrases that strongly signal the topic.
-// A page can belong to multiple concepts. Concept overlap = Jaccard similarity.
 const CONCEPT_PATTERNS: Record<string, RegExp> = {
   ml: /\b(ml|ai|machine[- ]?learning|deep[- ]?learning|neural[- ]?net|neural[- ]?network|llm|nlp|supervised|unsupervised|reinforcement|regression|classification|clustering|embedding|transformer|gpt|bert|pytorch|tensorflow|sklearn|kaggle|gradient|tensor|cnn|rnn|gan|attention|fine[- ]?tun|hyperparameter|overfit|backprop|optimizer|cross[- ]?validation|probability|statistics|linear[- ]?algebra|calculus|bayesian|markov|loss[- ]?function|feature[- ]?engineering)\b/i,
 
-  us_edu: /\b(ms|msc|mba|phd|masters?|university|college|gre|gmat|toefl|ielts|sop|lor|admission|grad[- ]?school|graduate|stem|f-?1|opt|cpt|stanford|mit|cmu|berkeley|princeton|harvard|yale|columbia|cornell|ucla|usc|gatech|uiuc|umich|nyu|northwestern|duke|caltech|brown|upenn|wharton|kellogg|booth|fuqua|tuck|ross|haas|sloan|tepper|ivy|fall[- ]?20\d\d|spring[- ]?20\d\d|fellowship|scholarship|tuition|gpa|transcript|recommendation|target[- ]?school|safety[- ]?school|ambitious|reach|admit|reject|wait[- ]?list|profile[- ]?evaluation|shortlist)\b/i,
+  us_edu: /\b(ms|msc|mba|phd|masters?|university|college|gre|gmat|toefl|ielts|sop|lor|admission|grad[- ]?school|graduate|stem|f-?1|opt|cpt|stanford|mit|cmu|berkeley|princeton|harvard|yale|columbia|cornell|ucla|usc|gatech|uiuc|umich|nyu|northwestern|duke|caltech|brown|upenn|stevens|wharton|kellogg|booth|fuqua|tuck|ross|haas|sloan|tepper|ivy|fall[- ]?20\d\d|spring[- ]?20\d\d|fellowship|scholarship|tuition|gpa|transcript|recommendation|target[- ]?school|safety[- ]?school|ambitious|reach|admit|reject|wait[- ]?list|profile[- ]?evaluation|shortlist)\b/i,
 
   us_general: /\b(usa?|america|american|united[- ]?states|visa|h-?1b|gc|green[- ]?card|stem[- ]?ext|sevis|i-?20|ds-?160|consulate|embassy)\b/i,
 
@@ -55,8 +71,6 @@ const CONCEPT_PATTERNS: Record<string, RegExp> = {
 }
 
 // ── Synonym expansion ───────────────────────────────────────────────────────
-// Replace each key (whole word) with its expansion BEFORE tokenizing so an
-// abbreviation contributes the same terms as its long form.
 const SYNONYM_MAP: Record<string, string> = {
   ms: "ms masters graduate university",
   msc: "msc masters graduate university",
@@ -99,11 +113,65 @@ const STOPWORDS = new Set([
   "been", "being", "had", "having", "one", "two", "three", "new", "get",
   "got", "go", "going", "make", "made", "take", "taken", "using", "use",
   "used", "like", "via", "etc", "ie", "eg", "yes",
+  // High-frequency Notion-specific noise
+  "page", "note", "notes", "doc", "document", "section", "list", "item", "items",
+  "thing", "things", "stuff", "way", "ways", "part", "parts", "lot", "lots",
 ])
 
+// ── Domains that are mutually exclusive in practice ─────────────────────────
+// Pairs in this set CAN'T link unless they share at least one concept directly.
+// e.g. a `design` page and a `us_edu` page can only link through an explicit
+// shared concept like both being tagged `career`. This is the gate that kills
+// "Design in the Age of AI" ↔ "Stevens SOP".
+const INCOMPATIBLE_DOMAIN_PAIRS: Array<[string, string]> = [
+  ["design", "us_edu"],
+  ["design", "us_general"],
+  ["design", "health"],
+  ["design", "finance"],
+  ["design", "travel"],
+  ["design", "books"],
+  ["health", "us_edu"],
+  ["health", "ml"],
+  ["health", "programming"],
+  ["health", "research"],
+  ["health", "career"],
+  ["health", "finance"],
+  ["travel", "us_edu"],
+  ["travel", "ml"],
+  ["travel", "programming"],
+  ["travel", "research"],
+  ["finance", "ml"],
+  ["finance", "us_edu"],
+  ["finance", "design"],
+  ["books", "programming"],
+  ["books", "us_edu"],
+  ["books", "ml"],
+  ["us_edu", "ml"],
+  ["us_edu", "design"],
+  ["us_edu", "programming"],
+  ["us_edu", "research"],
+  ["daily", "us_edu"],
+  ["daily", "ml"],
+  ["daily", "design"],
+  ["daily", "programming"],
+]
+const INCOMPATIBLE_SET = new Set(
+  INCOMPATIBLE_DOMAIN_PAIRS.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]),
+)
+
+function areDomainsIncompatible(a: Set<string>, b: Set<string>): boolean {
+  if (a.size === 0 || b.size === 0) return false
+  // Any shared concept means they're compatible — only check if disjoint.
+  for (const x of a) if (b.has(x)) return false
+  for (const x of a) {
+    for (const y of b) {
+      if (INCOMPATIBLE_SET.has(`${x}|${y}`)) return true
+    }
+  }
+  return false
+}
+
 // ── Light Porter-style stemmer ──────────────────────────────────────────────
-// Just enough to collapse plurals and common suffixes so "ideas"/"idea" and
-// "comparison"/"comparisons" merge.
 function stem(word: string): string {
   if (word.length < 4) return word
   let w = word.replace(/'s$/, "")
@@ -160,6 +228,134 @@ function jaccard<T>(a: Set<T>, b: Set<T>): number {
   return union === 0 ? 0 : inter / union
 }
 
+type SparseVec = Map<string, number>
+
+function dot(a: SparseVec, b: SparseVec): number {
+  if (a.size === 0 || b.size === 0) return 0
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a]
+  let s = 0
+  for (const [k, v] of small) {
+    const ov = big.get(k)
+    if (ov) s += v * ov
+  }
+  return s
+}
+
+// ── Spherical K-Means (cosine distance over normalized TF-IDF vectors) ─────
+// Output: clusterId for every doc id. Used as a SOFT prior — cross-cluster
+// edges have to clear a higher similarity bar than same-cluster edges.
+function kMeans(
+  ids: string[],
+  vectors: Map<string, SparseVec>,
+  k: number,
+  maxIter = 25,
+): Map<string, number> {
+  const out = new Map<string, number>()
+  if (ids.length === 0) return out
+  if (k <= 1 || ids.length <= k) {
+    ids.forEach((id, i) => out.set(id, Math.min(i, k - 1)))
+    return out
+  }
+
+  // k-means++ seeding for stable initial centroids
+  const centroids: SparseVec[] = []
+  const firstId = ids[Math.floor(ids.length / 2)]!
+  centroids.push(new Map(vectors.get(firstId) ?? new Map()))
+
+  while (centroids.length < k) {
+    const distances: number[] = []
+    let total = 0
+    for (const id of ids) {
+      const v = vectors.get(id) ?? new Map()
+      let best = 0
+      for (const c of centroids) best = Math.max(best, dot(v, c))
+      const d = (1 - best) ** 2 // squared cosine distance
+      distances.push(d)
+      total += d
+    }
+    if (total === 0) break
+    let pick = Math.random() * total
+    let chosen = 0
+    for (let i = 0; i < distances.length; i++) {
+      pick -= distances[i]!
+      if (pick <= 0) {
+        chosen = i
+        break
+      }
+    }
+    centroids.push(new Map(vectors.get(ids[chosen]!) ?? new Map()))
+  }
+
+  let assignments = new Map<string, number>()
+  for (let iter = 0; iter < maxIter; iter++) {
+    const newAssign = new Map<string, number>()
+    for (const id of ids) {
+      const v = vectors.get(id) ?? new Map()
+      let bestC = 0
+      let bestSim = -Infinity
+      for (let c = 0; c < centroids.length; c++) {
+        const s = dot(v, centroids[c]!)
+        if (s > bestSim) {
+          bestSim = s
+          bestC = c
+        }
+      }
+      newAssign.set(id, bestC)
+    }
+
+    // Convergence check
+    if (assignments.size === newAssign.size) {
+      let same = true
+      for (const [id, c] of newAssign) {
+        if (assignments.get(id) !== c) {
+          same = false
+          break
+        }
+      }
+      if (same) {
+        assignments = newAssign
+        break
+      }
+    }
+    assignments = newAssign
+
+    // Recompute centroids = mean of cluster members, then re-normalize.
+    const newCentroids: SparseVec[] = Array.from({ length: k }, () => new Map())
+    const counts = new Array<number>(k).fill(0)
+    for (const id of ids) {
+      const c = assignments.get(id)!
+      const v = vectors.get(id) ?? new Map()
+      counts[c]!++
+      const target = newCentroids[c]!
+      for (const [t, val] of v) {
+        target.set(t, (target.get(t) ?? 0) + val)
+      }
+    }
+    for (let c = 0; c < k; c++) {
+      const cnt = counts[c]!
+      const cv = newCentroids[c]!
+      if (cnt === 0) {
+        // Empty cluster — re-seed from a random doc to avoid collapse.
+        newCentroids[c] = new Map(
+          vectors.get(ids[Math.floor(Math.random() * ids.length)]!) ?? new Map(),
+        )
+        continue
+      }
+      let normSq = 0
+      for (const [t, val] of cv) {
+        const m = val / cnt
+        cv.set(t, m)
+        normSq += m * m
+      }
+      const norm = Math.sqrt(normSq) || 1
+      if (norm !== 1) for (const [t, val] of cv) cv.set(t, val / norm)
+    }
+    for (let c = 0; c < k; c++) centroids[c] = newCentroids[c]!
+  }
+
+  return assignments
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 export interface SimilarityEdge {
   from: string
@@ -173,23 +369,18 @@ export interface SimilarityDoc {
 }
 
 /**
- * Compute pairwise similarity across all docs using a weighted blend of:
- *  - Concept tag overlap (Jaccard)
- *  - Stemmed title token overlap (Jaccard)
- *  - TF-IDF cosine (title × 5 + body, with synonym expansion + stemming)
- *
- * Returns the top-K most similar partners for each doc, deduplicated as
- * undirected edges. No global threshold — top-K guarantees connectivity.
+ * Build semantic edges over a workspace using the gated multi-stage
+ * algorithm described at the top of this file.
  */
 export function buildSemanticEdges(
   docs: Map<string, SimilarityDoc>,
   opts: { topK?: number; minScore?: number } = {},
 ): SimilarityEdge[] {
-  // 1. Lower max connections to 3 to prevent spiderwebbing, and raise the strict cutoff.
-  const { topK = 3, minScore = 0.18 } = opts
+  const { topK = 3, minScore = 0.20 } = opts
   const ids = Array.from(docs.keys())
   if (ids.length < 2) return []
 
+  // 1. Vectorize ────────────────────────────────────────────────────────────
   const conceptsById = new Map<string, Set<string>>()
   const titleTokensById = new Map<string, Set<string>>()
   const tokensById = new Map<string, string[]>()
@@ -213,7 +404,7 @@ export function buildSemanticEdges(
   }
 
   const N = ids.length
-  const vectors = new Map<string, Map<string, number>>()
+  const vectors = new Map<string, SparseVec>()
   for (const [id, tokens] of tokensById) {
     if (tokens.length === 0) {
       vectors.set(id, new Map())
@@ -224,8 +415,8 @@ export function buildSemanticEdges(
     const vec = new Map<string, number>()
     let normSq = 0
     for (const [term, count] of tf) {
-      const dfc = df.get(term) ?? 1 // FIXED: Restored missing variable
-      if (dfc / N > 0.85) continue
+      const dfc = df.get(term) ?? 1
+      if (dfc / N > 0.85) continue // drop terms in >85% of docs
       const idf = Math.log((N + 1) / (dfc + 1)) + 1
       const tfidf = (1 + Math.log(count)) * idf
       vec.set(term, tfidf)
@@ -235,6 +426,15 @@ export function buildSemanticEdges(
     for (const [term, val] of vec) vec.set(term, val / norm)
     vectors.set(id, vec)
   }
+
+  // 2. K-Means cluster prior ────────────────────────────────────────────────
+  const k = Math.min(12, Math.max(3, Math.round(Math.sqrt(N / 2))))
+  const cluster = kMeans(ids, vectors, k)
+
+  // 3. Pairwise scoring with hard gates ─────────────────────────────────────
+  const W_CONCEPT = 0.30
+  const W_TITLE = 0.30
+  const W_TFIDF = 0.40
 
   const perNodeBest = new Map<string, { id: string; score: number }[]>()
   const ensure = (id: string) => {
@@ -246,47 +446,59 @@ export function buildSemanticEdges(
     return arr
   }
 
-  // 2. Rebalance weights to favor exact title token overlap heavily
-  const W_CONCEPT = 0.25
-  const W_TITLE = 0.40
-  const W_TFIDF = 0.35
-
   for (let i = 0; i < ids.length; i++) {
-    const idA = ids[i]! // FIXED: Added non-null assertion for strict TS
-
+    const idA = ids[i]!
     const va = vectors.get(idA)!
     const titleA = titleTokensById.get(idA)!
     const conceptsA = conceptsById.get(idA)!
+    const clusterA = cluster.get(idA)
 
     for (let j = i + 1; j < ids.length; j++) {
-      const idB = ids[j]! // FIXED: Added non-null assertion for strict TS
-
+      const idB = ids[j]!
       const vb = vectors.get(idB)!
       const titleB = titleTokensById.get(idB)!
       const conceptsB = conceptsById.get(idB)!
+      const clusterB = cluster.get(idB)
 
-      let dot = 0
-      if (va.size > 0 && vb.size > 0) {
-        const [small, big] = va.size <= vb.size ? [va, vb] : [vb, va]
-        for (const [term, val] of small) {
-          const other = big.get(term)
-          if (other) dot += val * other
-        }
-      }
-
+      // Signal computation
       const conceptScore = jaccard(conceptsA, conceptsB)
       const titleScore = jaccard(titleA, titleB)
+      const tfidfScore = dot(va, vb)
+      const sameCluster = clusterA === clusterB
 
-      // 3. NO ARTIFICIAL FLOOR. Pure mathematical similarity only.
-      let score = W_CONCEPT * conceptScore + W_TITLE * titleScore + W_TFIDF * dot
+      // ── HARD GATE 1: incompatible domains with no bridge concept ──────
+      // Kills "Design in the Age of AI" ↔ "Stevens SOP" type links.
+      if (areDomainsIncompatible(conceptsA, conceptsB)) {
+        const meaningfulTitleOverlap = [...titleA].some(
+          t => t.length >= 4 && titleB.has(t),
+        )
+        if (!meaningfulTitleOverlap && tfidfScore < 0.45) continue
+      }
 
-      // Only link if it passes our new, much stricter threshold
+      // ── HARD GATE 2: zero shared signals ──────────────────────────────
+      // If pages share nothing concrete (no concepts, no meaningful title
+      // tokens, mediocre TF-IDF), refuse to invent a connection.
+      if (conceptScore === 0 && titleScore === 0 && tfidfScore < 0.32) continue
+
+      // Composite score
+      let score = W_CONCEPT * conceptScore + W_TITLE * titleScore + W_TFIDF * tfidfScore
+
+      // ── SOFT MODIFIERS ────────────────────────────────────────────────
+      if (sameCluster) score *= 1.20 // boost same-cluster edges
+      else score *= 0.80               // penalize cross-cluster edges
+
+      // ── HARD GATE 3: cross-cluster edges need a high bar ──────────────
+      if (!sameCluster && score < 0.36) continue
+
+      // ── HARD GATE 4: absolute floor ───────────────────────────────────
       if (score < minScore) continue
+
       ensure(idA).push({ id: idB, score })
       ensure(idB).push({ id: idA, score })
     }
   }
 
+  // 4. Per-page top-K + dedupe as undirected edges ──────────────────────────
   const seen = new Set<string>()
   const out: SimilarityEdge[] = []
   for (const [id, candidates] of perNodeBest) {
