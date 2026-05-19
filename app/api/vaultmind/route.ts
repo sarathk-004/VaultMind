@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { generateObject } from "ai"
 import { z } from "zod"
 import type { VaultmindRequest, VaultmindResponse, Intent } from "@/lib/vaultmind-types"
+import { generateStructured } from "@/lib/llm-client"
 import {
   getWorkspaceSnapshot,
   rankPages,
@@ -9,10 +9,11 @@ import {
   fetchPageContent,
 } from "@/lib/notion-retriever"
 import { getRequestNotionToken } from "@/lib/notion-token"
+import { getRequestLlmSettings } from "@/lib/llm-key"
 
 const INTENT_INSTRUCTIONS: Record<Intent, string> = {
   search:
-    "The user wants to find pages, databases, tasks, and notes related to their query. List what you found, grouped by type, and guide them to open citations or explore the graph.",
+    "The user wants to find relevant pages and databases. Tasks/notes may be used as supporting context, but do not add them as nodes in the knowledge graph. List what you found and guide them to open citations or explore the graph.",
   summarize:
     "The user wants a concise summary of the topic. Extract the key points from the most relevant page and weave in context from linked resources. Be clear and direct.",
   connect:
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
 
     const intentKey: Intent = intent ?? "search"
     const token = await getRequestNotionToken()
+    const llmSettings = await getRequestLlmSettings()
     console.log(
       "[v0] API: intent=",
       intentKey,
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest) {
     )
 
     // 1. Retrieve workspace and rank relevant pages
-    const snap = await getWorkspaceSnapshot(token)
+    const snap = await getWorkspaceSnapshot(token, llmSettings)
     console.log(
       `[v0] API: snapshot has ${snap.pages.size} pages, ${snap.edges.length} edges, usingMock=${snap.usingMock}`,
     )
@@ -73,9 +75,19 @@ export async function POST(req: NextRequest) {
 
     let answer: string
 
+    const userKeys = llmSettings?.keys ?? {}
+    const hasUserKeys = Object.values(userKeys).some(v => (v ?? "").trim().length > 0)
+    const providerChoice = (llmSettings?.provider ?? "auto").toLowerCase()
+    const fastFallbackMs = !hasUserKeys && providerChoice === "auto" ? 2500 : 0
+
+    let timeout: NodeJS.Timeout | null = null
+    const controller = fastFallbackMs ? new AbortController() : null
+    if (controller) {
+      timeout = setTimeout(() => controller.abort(), fastFallbackMs)
+    }
+
     try {
-      const result = await generateObject({
-        model: "openai/gpt-4o-mini",
+      const result = await generateStructured({
         schema: z.object({ answer: z.string() }),
         system: `You are VaultMind, an AI-powered Notion workspace assistant.
 
@@ -94,15 +106,22 @@ ${contextDocs.length > 0 ? contextDocs : "_(No matching pages found in workspace
 Graph contains ${graph.nodes.length} nodes: ${graph.nodes.map(n => n.label).join(", ")}
 
 Generate a helpful answer based on this context.`,
-        temperature: 0.3,
+        label: "chat answer",
+        useCase: "general",
+        providerOverride: llmSettings?.provider ?? null,
+        modelOverride: llmSettings?.model ?? null,
+        keys: llmSettings?.keys ?? {},
+        signal: controller?.signal,
       })
-      answer = result.object.answer
+      answer = result.answer
     } catch (llmErr) {
       console.warn(
         "[v0] LLM unavailable, using deterministic synthesis:",
         llmErr instanceof Error ? llmErr.message : llmErr,
       )
       answer = synthesizeAnswer(message, intentKey, validContents, graph)
+    } finally {
+      if (timeout) clearTimeout(timeout)
     }
 
     const response: VaultmindResponse = { answer, graph }

@@ -14,6 +14,7 @@ import {
 import { blocksToMarkdown } from "./notion-blocks"
 import type { GraphNode, GraphEdge, KnowledgeGraph, NodeType, NoteContent } from "./vaultmind-types"
 import { WORKSPACE, WORKSPACE_EDGES, NOTE_CONTENT } from "./workspace-data"
+import type { LlmSettings } from "./llm-key"
 
 interface NotionPageMeta {
   id: string
@@ -41,7 +42,10 @@ interface CachedPageContent {
 const SNAPSHOT_TTL = 5 * 60_000
 const PAGE_CACHE_TTL = 10 * 60_000
 
+const HIDDEN_GRAPH_TYPES = new Set<NodeType>(["task", "note"])
+
 const snapshotByToken = new Map<string, CachedSnapshot>()
+const snapshotInFlightByToken = new Map<string, Promise<CachedSnapshot>>()
 const pageCacheByToken = new Map<string, Map<string, CachedPageContent>>()
 
 function getPageCache(key: string): Map<string, CachedPageContent> {
@@ -57,6 +61,7 @@ function getPageCache(key: string): Map<string, CachedPageContent> {
 export function clearTokenCaches(token: string | null | undefined): void {
   const key = tokenKey(token)
   snapshotByToken.delete(key)
+  snapshotInFlightByToken.delete(key)
   pageCacheByToken.delete(key)
 }
 
@@ -64,8 +69,15 @@ export function clearTokenCaches(token: string | null | undefined): void {
  * Fetch all accessible pages & databases from Notion. Falls back to local
  * mock workspace if Notion is unavailable or zero pages are accessible.
  */
-export async function getWorkspaceSnapshot(token?: string | null): Promise<CachedSnapshot> {
+export async function getWorkspaceSnapshot(
+  token?: string | null,
+  llmSettings?: LlmSettings | null,
+): Promise<CachedSnapshot> {
   const key = tokenKey(token)
+  const userKeys = llmSettings?.keys ?? {}
+  const hasUserKeys = Object.values(userKeys).some(v => (v ?? "").trim().length > 0)
+  const providerChoice = (llmSettings?.provider ?? "auto").toLowerCase()
+  const fastFallbackMs = !hasUserKeys && providerChoice === "auto" ? 2500 : undefined
 
   if (!isNotionConnected(token)) {
     console.log("[v0] No Notion token — using local mock workspace")
@@ -77,9 +89,15 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
   if (cached && cached.source === "notion" && now - cached.fetchedAt < SNAPSHOT_TTL) {
     return cached
   }
+  const inFlight = snapshotInFlightByToken.get(key)
+  if (inFlight) return inFlight
 
-  try {
-    const pages = new Map<string, NotionPageMeta>()
+  const work = (async (): Promise<CachedSnapshot> => {
+    try {
+    let pages = new Map<string, NotionPageMeta>()
+    // Extra link targets derived from page properties (especially database rows).
+    // These allow tasks/notes to influence *mapping* without being rendered as nodes.
+    const propertyLinkTargetsById = new Map<string, string[]>()
     let cursor: string | undefined
     let safetyCount = 0
 
@@ -97,8 +115,9 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       const body: Record<string, unknown> = {
         page_size: 100,
         // Ask Notion for pages only — drops every `database` object at the
-        // source. Database *rows* still come through (they're "page" objects
-        // with parent.type === "database_id") and are filtered below.
+        // source. Database rows still come through as `page` objects and we
+        // keep them so task/note-style records can inform linking, even
+        // though they are filtered from the rendered graph.
         filter: { value: "page", property: "object" },
       }
       if (cursor) body.start_cursor = cursor
@@ -116,10 +135,6 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
         }
         const page = item as NotionPage
         const parentType = page.parent?.type
-        if (parentType === "database_id") {
-          stats.databaseRows++
-          continue
-        }
         if (parentType === "block_id") {
           stats.blockChildren++
           continue
@@ -133,6 +148,9 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
         if (meta) {
           stats.kept++
           pages.set(meta.id, meta)
+          if (parentType === "database_id") stats.databaseRows++
+          const propTargets = extractLinkTargetsFromPageProperties(page)
+          if (propTargets.length) propertyLinkTargetsById.set(meta.id, propTargets)
         }
       }
 
@@ -173,10 +191,17 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     // For every page, scan top-level blocks once to get BOTH:
     //  - explicit references (link_to_page, @mentions, child_page)
     //  - a plaintext snippet used for similarity scoring
+    //
+    // The explicit-reference list is also passed to the similarity layer
+    // as `linkTargets` — two pages that share outbound link targets are
+    // strong navigational neighbors even when their text doesn't overlap.
     const pageIds = Array.from(pages.keys())
     const BATCH = 8
     let linkEdgeCount = 0
-    const docTexts = new Map<string, { title: string; body: string }>()
+    let docTexts = new Map<
+      string,
+      { title: string; body: string; parentId?: string; linkTargets: string[] }
+    >()
 
     for (let i = 0; i < pageIds.length; i += BATCH) {
       const batch = pageIds.slice(i, i + BATCH)
@@ -188,36 +213,147 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       results.forEach((res, idx) => {
         const sourceId = batch[idx]
         const meta = pages.get(sourceId)
-        docTexts.set(sourceId, { title: meta?.title ?? "", body: res.text })
+        // Keep only link targets that point to other pages we know about —
+        // dangling targets are noise for the structural-overlap signal.
+        const extraTargets = propertyLinkTargetsById.get(sourceId) ?? []
+        const knownTargetsSet = new Set<string>()
+        for (const t of res.ids) if (pages.has(t)) knownTargetsSet.add(t)
+        for (const t of extraTargets) if (pages.has(t)) knownTargetsSet.add(t)
+        const knownTargets = Array.from(knownTargetsSet)
+        docTexts.set(sourceId, {
+          title: meta?.title ?? "",
+          body: res.text,
+          parentId: meta?.parentId,
+          linkTargets: knownTargets,
+        })
 
-        for (const targetId of res.ids) {
-          if (pages.has(targetId)) {
-            addEdge(sourceId, targetId, "references")
-            linkEdgeCount++
-          }
+        for (const targetId of knownTargets) {
+          addEdge(sourceId, targetId, "references")
+          linkEdgeCount++
         }
       })
     }
 
-    // Semantic edges: blended concept-tag + stemmed-title + TF-IDF similarity.
-    // Surfaces conceptual relationships even between pages that share zero
-    // literal tokens (e.g. "MS in US" ↔ "University Comparisons" via the
-    // shared `us_edu` concept tag).
-    const { buildSemanticEdges } = await import("./page-similarity")
-    const semanticPairs = buildSemanticEdges(docTexts, { topK: 5, minScore: 0.06 })
+    // ── LLM CLASSIFICATION ────────────────────────────────────────────────
+    // Ask the AI Gateway (zero-config: openai/gpt-5-mini) to assign every
+    // page a primary_category, secondary_categories, and purpose. Results
+    // are cached by content hash so re-fetches are essentially free.
+    //
+    // If the LLM is unreachable / errors / times out (45 s budget), the
+    // function returns null and the similarity layer still runs — it just
+    // falls back to its rule-based domain gates.
+    const deduped = collapseDuplicatePages(pages, docTexts)
+    if (deduped.aliases.size > 0) {
+      pages = deduped.pages
+      docTexts = deduped.docs
+      const rewrittenEdges = rewriteEdgesWithAliases(edges, deduped.aliases)
+      edges.length = 0
+      edges.push(...rewrittenEdges)
+      linkEdgeCount = edges.filter(e => e.relation === "references").length
+      console.log(
+        `[v0] Collapsed ${deduped.aliases.size} duplicate page nodes by title/content`,
+      )
+    }
+    const { classifyPagesWithLLM } = await import("./page-classifier")
+    const classifications = await classifyPagesWithLLM(docTexts, {
+      providerOverride: llmSettings?.provider ?? null,
+      modelOverride: llmSettings?.model ?? null,
+      keys: llmSettings?.keys ?? {},
+      budgetMs: fastFallbackMs,
+    }).catch(err => {
+      console.warn(
+        "[v0] LLM classifier threw — continuing without it:",
+        err instanceof Error ? err.message : err,
+      )
+      return null
+    })
+
+    // ── SEMANTIC EDGES ────────────────────────────────────────────────────
+    // When LLM classifications are available we use the in-process pipeline
+    // as the authoritative semantic linker because it understands category
+    // bridges, families, page purposes, and link intent. Without
+    // classifications we prefer the Python sidecar (chunking → BGE-Small →
+    // FAISS → chunk voting → domain-aware threshold) if it is configured and
+    // reachable.
+    //
+    // In-process path stages, in order:
+    //   local-first retrieval → hard gates → topical+navigational scoring
+    //   → tiered thresholds → reciprocal validation → link-intent classifier
+    //   → graph-density cap.
+    // Classifications drive the local pools and the navigational sub-score
+    // (additive only — no multiplicative boosting). The link-intent
+    // classifier (lib/link-intent.ts) is the precision filter.
     let semanticEdgeCount = 0
-    for (const pair of semanticPairs) {
-      // Avoid duplicating an existing parent/reference edge.
-      const before = edges.length
-      addEdge(pair.from, pair.to, "relates to")
-      if (edges.length > before) semanticEdgeCount++
+    let semanticSource: "sidecar" | "fallback" = classifications ? "fallback" : "sidecar"
+    if (classifications) {
+      const [{ buildSemanticEdges }, { classifyLinkIntents }] = await Promise.all([
+        import("./page-similarity"),
+        import("./link-intent"),
+      ])
+      const classifyLinkIntent = (pairs: Parameters<typeof classifyLinkIntents>[0]) =>
+        classifyLinkIntents(pairs, {
+          providerOverride: llmSettings?.provider ?? null,
+          modelOverride: llmSettings?.model ?? null,
+          keys: llmSettings?.keys ?? {},
+          budgetMs: fastFallbackMs,
+        })
+      const fallbackPairs = await buildSemanticEdges(docTexts, {
+        topK: 5,
+        classifications,
+        classifyLinkIntent,
+        maxIntentPairs: 200,
+        maxDegreePerNode: 8,
+      })
+      for (const pair of fallbackPairs) {
+        const before = edges.length
+        addEdge(pair.from, pair.to, "relates to")
+        if (edges.length > before) semanticEdgeCount++
+      }
+    } else {
+      const { buildSemanticEdgesViaSidecar } = await import("./similarity-sidecar")
+      const sidecarPayload = Array.from(docTexts.entries()).map(([id, d]) => ({
+        id,
+        title: d.title,
+        body: d.body,
+      }))
+      const sidecarRes = await buildSemanticEdgesViaSidecar(sidecarPayload, {
+        topK: 5,
+        timeoutMs: 60_000,
+        minChunksForVoting: 3,
+      })
+      if (sidecarRes) {
+        console.log(
+          `[v0] Sidecar built ${sidecarRes.edges.length} semantic edges`,
+          sidecarRes.stats,
+        )
+        for (const pair of sidecarRes.edges) {
+          const before = edges.length
+          addEdge(pair.from, pair.to, "relates to")
+          if (edges.length > before) semanticEdgeCount++
+        }
+      } else {
+        semanticSource = "fallback"
+        console.warn("[v0] Falling back to in-process similarity (sidecar unavailable)")
+        const { buildSemanticEdges } = await import("./page-similarity")
+        const fallbackPairs = await buildSemanticEdges(docTexts, {
+          topK: 5,
+          maxIntentPairs: 200,
+          maxDegreePerNode: 8,
+        })
+        for (const pair of fallbackPairs) {
+          const before = edges.length
+          addEdge(pair.from, pair.to, "relates to")
+          if (edges.length > before) semanticEdgeCount++
+        }
+      }
     }
 
     console.log(
       `[v0] Built ${edges.length} edges (` +
         `${edges.length - linkEdgeCount - semanticEdgeCount} parent, ` +
         `${linkEdgeCount} explicit links, ` +
-        `${semanticEdgeCount} semantic)`,
+        `${semanticEdgeCount} semantic [${semanticSource}` +
+        `${classifications ? `, llm:${classifications.size}` : ""}])`,
     )
 
     // Cluster by connected component on the edge graph — every page that's
@@ -233,13 +369,18 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
     }
     snapshotByToken.set(key, snap)
     console.log(`[v0] Fetched Notion workspace: ${pages.size} items, ${edges.length} edges`)
-    return snap
-  } catch (err) {
-    console.error("[v0] Failed to fetch Notion workspace, falling back to mock data:", err)
-    const mockSnap = mockSnapshot()
-    mockSnap.usingMock = true
-    return mockSnap
-  }
+      return snap
+    } catch (err) {
+      console.error("[v0] Failed to fetch Notion workspace, falling back to mock data:", err)
+      const mockSnap = mockSnapshot()
+      mockSnap.usingMock = true
+      return mockSnap
+    } finally {
+      snapshotInFlightByToken.delete(key)
+    }
+  })()
+  snapshotInFlightByToken.set(key, work)
+  return work
 }
 
 /**
@@ -295,6 +436,65 @@ async function fetchPageReferences(
 /**
  * Extract plaintext from any rich-text-bearing Notion block. Used purely
  * for TF-IDF similarity — not for rendering, so we don't need full markdown.
+ */
+/**
+ * Extract link targets from Notion page properties (especially database rows).
+ * This is used so tasks/notes can influence mapping without being rendered.
+ */
+function extractLinkTargetsFromPageProperties(page: NotionPage): string[] {
+  const out = new Set<string>()
+  const props: Record<string, any> | undefined = (page as any)?.properties
+  if (!props) return []
+
+  for (const v of Object.values(props)) {
+    if (!v || typeof v !== "object") continue
+
+    // Relation properties are the main way database rows connect to projects/pages.
+    if (v.type === "relation" && Array.isArray(v.relation)) {
+      for (const rel of v.relation) {
+        const id = rel?.id
+        if (typeof id === "string" && id) out.add(id.replace(/-/g, ""))
+      }
+      continue
+    }
+
+    // Some properties can contain mentions in rich_text/title arrays.
+    if (v.type === "rich_text" && Array.isArray(v.rich_text)) {
+      collectMentionsFromRichText(v.rich_text, out)
+      continue
+    }
+    if (v.type === "title" && Array.isArray(v.title)) {
+      collectMentionsFromRichText(v.title, out)
+      continue
+    }
+
+    // Rollups can embed relations; handle the common "array" case conservatively.
+    if (v.type === "rollup" && v.rollup?.type === "array" && Array.isArray(v.rollup.array)) {
+      for (const item of v.rollup.array) {
+        if (item?.type === "relation" && Array.isArray(item.relation)) {
+          for (const rel of item.relation) {
+            const id = rel?.id
+            if (typeof id === "string" && id) out.add(id.replace(/-/g, ""))
+          }
+        }
+      }
+    }
+  }
+
+  return Array.from(out)
+}
+
+function collectMentionsFromRichText(richText: any[], out: Set<string>): void {
+  for (const rt of richText) {
+    const m = rt?.mention
+    if (m?.type === "page" && m.page?.id) out.add(String(m.page.id).replace(/-/g, ""))
+    if (m?.type === "database" && m.database?.id) out.add(String(m.database.id).replace(/-/g, ""))
+  }
+}
+
+/**
+ * Extract plaintext from rich-text-bearing Notion blocks. Used for ranking and
+ * similarity only (not for rendering), so plain text is sufficient.
  */
 function extractBlockText(block: any): string {
   if (!block || typeof block !== "object") return ""
@@ -389,14 +589,23 @@ function assignClustersByConnectedComponent(
  * degree so dense vaults stay readable. Carries cluster ids onto the nodes.
  */
 export function snapshotToGraph(snap: CachedSnapshot, maxNodes = 500): KnowledgeGraph {
+  const visibleMetas = Array.from(snap.pages.values()).filter(isGraphVisible)
+  const visibleIds = new Set(visibleMetas.map(m => m.id))
+  const allEdges = buildVisibleEdges(snap.edges, snap.pages, visibleIds, {
+    bridgeHidden: true,
+    maxBridgeNeighbors: 6,
+    maxBridgeEdgesPerHidden: 6,
+  })
+
   const degree = new Map<string, number>()
-  for (const e of snap.edges) {
+  for (const e of allEdges) {
     degree.set(e.from, (degree.get(e.from) ?? 0) + 1)
     degree.set(e.to, (degree.get(e.to) ?? 0) + 1)
   }
 
-  const allMetas = Array.from(snap.pages.values())
-  const sorted = allMetas.slice().sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0))
+  const sorted = visibleMetas
+    .slice()
+    .sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0))
   const kept = new Set<string>(sorted.slice(0, maxNodes).map(m => m.id))
 
   const nodes: GraphNode[] = sorted.slice(0, maxNodes).map(m => ({
@@ -405,11 +614,166 @@ export function snapshotToGraph(snap: CachedSnapshot, maxNodes = 500): Knowledge
     type: m.type,
     cluster: m.cluster,
   }))
-  const edges = snap.edges.filter(e => kept.has(e.from) && kept.has(e.to))
+  const edges = allEdges.filter(e => kept.has(e.from) && kept.has(e.to))
   return { nodes, edges }
 }
 
 // ── Ranking ─────────────────────────────────────────────────────────────
+
+const LOW_SIGNAL_DUPLICATE_TITLES = new Set([
+  "daily habits",
+  "habits",
+  "habit tracker",
+  "daily routine",
+  "journal",
+  "meeting notes",
+  "notes",
+])
+
+function collapseDuplicatePages(
+  pages: Map<string, NotionPageMeta>,
+  docs: Map<string, { title: string; body: string; parentId?: string; linkTargets: string[] }>,
+): {
+  pages: Map<string, NotionPageMeta>
+  docs: Map<string, { title: string; body: string; parentId?: string; linkTargets: string[] }>
+  aliases: Map<string, string>
+} {
+  const groups = new Map<string, string[]>()
+  for (const [id, meta] of pages) {
+    const key = `${meta.type}:${normalizeGraphTitle(meta.title)}`
+    const ids = groups.get(key) ?? []
+    ids.push(id)
+    groups.set(key, ids)
+  }
+
+  const aliases = new Map<string, string>()
+  for (const [groupKey, ids] of groups) {
+    if (ids.length < 2) continue
+    const sorted = ids.slice().sort((a, b) => duplicatePriority(docs.get(b), pages.get(b)) - duplicatePriority(docs.get(a), pages.get(a)))
+    const canonical = sorted[0]!
+    const titleKey = groupKey.split(":").slice(1).join(":")
+    for (const id of sorted.slice(1)) {
+      const canonicalMeta = pages.get(canonical)
+      const duplicateMeta = pages.get(id)
+      const canonicalDoc = docs.get(canonical)
+      const duplicateDoc = docs.get(id)
+      if (!canonicalMeta || !duplicateMeta || !canonicalDoc || !duplicateDoc) continue
+      if (shouldCollapseDuplicatePage(titleKey, canonicalMeta, duplicateMeta, canonicalDoc.body, duplicateDoc.body)) {
+        aliases.set(id, canonical)
+      }
+    }
+  }
+
+  if (aliases.size === 0) return { pages, docs, aliases }
+
+  const nextPages = new Map<string, NotionPageMeta>()
+  for (const [id, meta] of pages) {
+    if (aliases.has(id)) continue
+    nextPages.set(id, {
+      ...meta,
+      parentId: resolveAliasId(meta.parentId, aliases),
+    })
+  }
+
+  const nextDocs = new Map<string, { title: string; body: string; parentId?: string; linkTargets: string[] }>()
+  for (const [id, doc] of docs) {
+    const canonical = resolveAliasId(id, aliases) ?? id
+    const existing = nextDocs.get(canonical)
+    const mergedTargets = new Set<string>([
+      ...(existing?.linkTargets ?? []),
+      ...doc.linkTargets.map(t => resolveAliasId(t, aliases) ?? t),
+    ])
+    mergedTargets.delete(canonical)
+    nextDocs.set(canonical, {
+      title: existing?.title ?? doc.title,
+      body: mergeDuplicateBodies(existing?.body ?? "", doc.body),
+      parentId: resolveAliasId(existing?.parentId ?? doc.parentId, aliases),
+      linkTargets: Array.from(mergedTargets),
+    })
+  }
+
+  return { pages: nextPages, docs: nextDocs, aliases }
+}
+
+function rewriteEdgesWithAliases(edges: GraphEdge[], aliases: Map<string, string>): GraphEdge[] {
+  const seen = new Set<string>()
+  const rewritten: GraphEdge[] = []
+  for (const edge of edges) {
+    const from = resolveAliasId(edge.from, aliases) ?? edge.from
+    const to = resolveAliasId(edge.to, aliases) ?? edge.to
+    if (from === to) continue
+    const key = from < to ? `${from}|${to}|${edge.relation ?? ""}` : `${to}|${from}|${edge.relation ?? ""}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    rewritten.push({ ...edge, from, to })
+  }
+  return rewritten
+}
+
+function resolveAliasId(id: string | undefined, aliases: Map<string, string>): string | undefined {
+  if (!id) return undefined
+  let current = id
+  const seen = new Set<string>()
+  while (aliases.has(current) && !seen.has(current)) {
+    seen.add(current)
+    current = aliases.get(current)!
+  }
+  return current
+}
+
+function normalizeGraphTitle(title: string): string {
+  return title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim()
+}
+
+function duplicatePriority(
+  doc: { body: string; linkTargets: string[] } | undefined,
+  meta: NotionPageMeta | undefined,
+): number {
+  return (doc?.body.length ?? 0) + (doc?.linkTargets.length ?? 0) * 50 + (meta?.parentId ? 10 : 0)
+}
+
+function shouldCollapseDuplicatePage(
+  titleKey: string,
+  a: NotionPageMeta,
+  b: NotionPageMeta,
+  bodyA: string,
+  bodyB: string,
+): boolean {
+  if (a.type !== b.type) return false
+  if (a.parentId && a.parentId === b.parentId) return true
+  const overlap = bodyTokenOverlap(bodyA, bodyB)
+  if (overlap >= 0.88) return true
+  if (LOW_SIGNAL_DUPLICATE_TITLES.has(titleKey) && (overlap >= 0.4 || !bodyA.trim() || !bodyB.trim())) {
+    return true
+  }
+  return false
+}
+
+function bodyTokenOverlap(a: string, b: string): number {
+  const aTokens = new Set(tokenizeBodyForDedup(a))
+  const bTokens = new Set(tokenizeBodyForDedup(b))
+  if (aTokens.size === 0 || bTokens.size === 0) return 0
+  let shared = 0
+  const [small, big] = aTokens.size <= bTokens.size ? [aTokens, bTokens] : [bTokens, aTokens]
+  for (const token of small) if (big.has(token)) shared++
+  return shared / small.size
+}
+
+function tokenizeBodyForDedup(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(token => token.length >= 3)
+}
+
+function mergeDuplicateBodies(existing: string, incoming: string): string {
+  if (!existing) return incoming
+  if (!incoming) return existing
+  if (existing.includes(incoming)) return existing
+  if (incoming.includes(existing)) return incoming
+  return `${existing}\n\n${incoming}`.slice(0, 8000)
+}
 
 const STOPWORDS = new Set([
   "the","a","an","and","or","but","of","to","in","on","for","with","is","are","was","were",
@@ -460,7 +824,7 @@ export async function rankPages(
   const qPhrase = qTokens.join(" ")
   for (const meta of snap.pages.values()) {
     const t = meta.title.toLowerCase()
-    if (qTokens.some(tok => t.includes(tok))) {
+    if (qTokens.some(tok => containsQueryTokenAsWord(t, tok))) {
       candidates.set(meta.id, meta)
       if (candidates.size >= 30) break
     }
@@ -496,7 +860,9 @@ export async function rankPages(
 
   // 3. Build doc features + run BM25
   const docs: DocFeatures[] = candList.map((meta, i) => {
-    const text = `${meta.title}\n${snippets[i] ?? ""}`
+    const snippet = snippets[i] ?? ""
+    const focused = extractQueryFocusedContext(snippet, qTokens)
+    const text = `${meta.title}\n${focused || snippet}`
     return { meta, text, tokens: tokenize(text) }
   })
 
@@ -542,6 +908,36 @@ export async function rankPages(
   return final
     .map(s => snap.pages.get(s.id))
     .filter((m): m is NotionPageMeta => Boolean(m))
+}
+
+function containsQueryTokenAsWord(text: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  if (token.length <= 2) {
+    return new RegExp(`\\b${escaped}\\b`, "i").test(text)
+  }
+  return text.includes(token)
+}
+
+function extractQueryFocusedContext(text: string, qTokens: string[]): string {
+  if (!text || qTokens.length === 0) return text
+  const sentences = text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+  if (sentences.length === 0) return text
+
+  const hitIdx = new Set<number>()
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i]!.toLowerCase()
+    if (qTokens.some(tok => containsQueryTokenAsWord(s, tok))) {
+      hitIdx.add(i)
+      if (i > 0) hitIdx.add(i - 1)
+      if (i < sentences.length - 1) hitIdx.add(i + 1)
+    }
+  }
+  if (hitIdx.size === 0) return ""
+  const ordered = Array.from(hitIdx).sort((a, b) => a - b)
+  return ordered.map(i => sentences[i]!).join(" ").slice(0, 1200)
 }
 
 /**
@@ -800,7 +1196,12 @@ function propValueToString(prop: any): string {
 // ── Subgraph ────────────────────────────────────────────────────────────
 
 export function buildSubgraph(seeds: NotionPageMeta[], snap: CachedSnapshot): KnowledgeGraph {
-  const included = new Set<string>(seeds.map(s => s.id))
+  const visibleIds = new Set<string>()
+  for (const [id, meta] of snap.pages) {
+    if (isGraphVisible(meta)) visibleIds.add(id)
+  }
+
+  const included = new Set<string>()
   const adjMap = new Map<string, Set<string>>()
   for (const e of snap.edges) {
     if (!adjMap.has(e.from)) adjMap.set(e.from, new Set())
@@ -809,11 +1210,12 @@ export function buildSubgraph(seeds: NotionPageMeta[], snap: CachedSnapshot): Kn
     adjMap.get(e.to)!.add(e.from)
   }
   for (const seed of seeds) {
+    if (visibleIds.has(seed.id)) included.add(seed.id)
     const neighbors = adjMap.get(seed.id)
     if (!neighbors) continue
     for (const n of neighbors) {
       if (included.size >= 14) break
-      included.add(n)
+      if (visibleIds.has(n)) included.add(n)
     }
   }
 
@@ -822,7 +1224,11 @@ export function buildSubgraph(seeds: NotionPageMeta[], snap: CachedSnapshot): Kn
     const meta = snap.pages.get(id)
     if (meta) nodes.push({ id, label: meta.title, type: meta.type, cluster: meta.cluster })
   }
-  const edges = snap.edges.filter(e => included.has(e.from) && included.has(e.to))
+  const edges = buildVisibleEdges(snap.edges, snap.pages, included, {
+    bridgeHidden: true,
+    maxBridgeNeighbors: 4,
+    maxBridgeEdgesPerHidden: 4,
+  })
   return { nodes, edges }
 }
 
@@ -833,11 +1239,9 @@ function parseSearchResult(item: NotionPage | NotionDatabase): NotionPageMeta | 
 
   if (item.object === "page") {
     const page = item as NotionPage
-    // Notion treats every database row as a "page" with parent.type ===
-    // "database_id". We only want real top-level pages, not the contents
-    // *inside* databases — those are records, not pages.
+    // Database rows (tasks/notes) are still ingested for internal linking,
+    // but filtered from the rendered knowledge graph.
     const parentType = page.parent?.type
-    if (parentType === "database_id") return null
     // Pages with `block_id` parents are nested inside a column/toggle/etc.
     // and aren't standalone pages either.
     if (parentType === "block_id") return null
@@ -886,6 +1290,76 @@ function guessPageType(page: NotionPage): NodeType {
   if (keys.includes("status") || keys.includes("assignee") || keys.includes("due")) return "task"
   if (keys.includes("tags") || keys.includes("type") || keys.includes("category")) return "note"
   return "page"
+}
+
+function isGraphVisible(meta: NotionPageMeta | undefined): boolean {
+  if (!meta) return false
+  return !HIDDEN_GRAPH_TYPES.has(meta.type)
+}
+
+function buildVisibleEdges(
+  edges: GraphEdge[],
+  pages: Map<string, NotionPageMeta>,
+  visibleIds: Set<string>,
+  opts: { bridgeHidden?: boolean; maxBridgeNeighbors?: number; maxBridgeEdgesPerHidden?: number } = {},
+): GraphEdge[] {
+  const seen = new Set<string>()
+  const out: GraphEdge[] = []
+  const addEdge = (from: string, to: string, relation?: string) => {
+    if (from === to) return
+    if (!visibleIds.has(from) || !visibleIds.has(to)) return
+    const key = from < to ? `${from}|${to}` : `${to}|${from}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ from, to, relation })
+  }
+
+  for (const e of edges) {
+    if (visibleIds.has(e.from) && visibleIds.has(e.to)) addEdge(e.from, e.to, e.relation)
+  }
+
+  if (!opts.bridgeHidden) return out
+
+  const adjacency = new Map<string, Set<string>>()
+  for (const e of edges) {
+    if (!adjacency.has(e.from)) adjacency.set(e.from, new Set())
+    if (!adjacency.has(e.to)) adjacency.set(e.to, new Set())
+    adjacency.get(e.from)!.add(e.to)
+    adjacency.get(e.to)!.add(e.from)
+  }
+
+  const maxNeighbors = opts.maxBridgeNeighbors ?? 6
+  const maxEdges = opts.maxBridgeEdgesPerHidden ?? 6
+
+  for (const [id, meta] of pages) {
+    if (isGraphVisible(meta)) continue
+    const neighbors = adjacency.get(id)
+    if (!neighbors) continue
+    const visibleNeighbors = Array.from(neighbors).filter(n => visibleIds.has(n))
+    if (visibleNeighbors.length < 2) continue
+    const trimmed = visibleNeighbors.slice(0, maxNeighbors)
+    let edgesAdded = 0
+    const parentId = meta.parentId && visibleIds.has(meta.parentId) ? meta.parentId : undefined
+
+    if (parentId) {
+      for (const n of trimmed) {
+        if (n === parentId) continue
+        addEdge(parentId, n, "context")
+        edgesAdded++
+        if (edgesAdded >= maxEdges) break
+      }
+      continue
+    }
+
+    const hub = trimmed[0]
+    for (const n of trimmed.slice(1)) {
+      addEdge(hub, n, "context")
+      edgesAdded++
+      if (edgesAdded >= maxEdges) break
+    }
+  }
+
+  return out
 }
 
 function mockSnapshot(): CachedSnapshot {

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server"
 import { getWorkspaceSnapshot, snapshotToGraph } from "@/lib/notion-retriever"
 import { isNotionConnected } from "@/lib/notion-client"
 import { getRequestNotionToken } from "@/lib/notion-token"
+import { getRequestLlmSettings } from "@/lib/llm-key"
 
 export async function GET() {
   try {
     const token = await getRequestNotionToken()
-    const snap = await getWorkspaceSnapshot(token)
+    const llmSettings = await getRequestLlmSettings()
+    const snap = await getWorkspaceSnapshot(token, llmSettings)
     const graph = snapshotToGraph(snap)
     console.log(
       `[v0] Workspace endpoint: pages=${snap.pages.size}, edges=${snap.edges.length}, ` +
