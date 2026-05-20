@@ -14,6 +14,8 @@ import {
 import { blocksToMarkdown } from "./notion-blocks"
 import type { GraphNode, GraphEdge, KnowledgeGraph, NodeType, NoteContent } from "./vaultmind-types"
 import { WORKSPACE, WORKSPACE_EDGES, NOTE_CONTENT } from "./workspace-data"
+import type { LlmProvider, KeyedLlmProvider } from "./llm-settings"
+import type { PageClassification } from "./page-classifier"
 
 interface NotionPageMeta {
   id: string
@@ -31,6 +33,13 @@ export interface CachedSnapshot {
   fetchedAt: number
   source: "notion" | "mock"
   usingMock: boolean
+}
+
+interface WorkspaceLlmOptions {
+  providerOverride?: LlmProvider | null
+  modelOverride?: string | null
+  keys?: Partial<Record<KeyedLlmProvider, string | null>>
+  budgetMs?: number
 }
 
 interface CachedPageContent {
@@ -53,10 +62,53 @@ function getPageCache(key: string): Map<string, CachedPageContent> {
   return m
 }
 
+function buildClassificationEdges(
+  classifications: Map<string, PageClassification>,
+): Array<{ from: string; to: string; relation: string }> {
+  const ids = Array.from(classifications.keys())
+  const candidates: Array<{ from: string; to: string; score: number; relation: string }> = []
+
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const from = ids[i]!
+      const to = ids[j]!
+      const a = classifications.get(from)!
+      const b = classifications.get(to)!
+      let score = 0
+      if (a.domain === b.domain && a.domain !== "general") score += 3
+      if (a.primary_category === b.primary_category) score += 2
+      if (a.intent === b.intent && a.intent !== "other") score += 1
+      if (a.audience === b.audience && a.audience !== "other") score += 1
+
+      const aTopics = new Set(a.topics.map(t => t.toLowerCase().trim()).filter(Boolean))
+      const bTopics = new Set(b.topics.map(t => t.toLowerCase().trim()).filter(Boolean))
+      let topicOverlap = 0
+      for (const topic of aTopics) if (bTopics.has(topic)) topicOverlap++
+      score += Math.min(topicOverlap, 3)
+
+      if (score >= 5) {
+        candidates.push({
+          from,
+          to,
+          score,
+          relation: topicOverlap > 0 ? "shares topic" : "same domain",
+        })
+      }
+    }
+  }
+
+  return candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(12, ids.length * 2))
+    .map(({ from, to, relation }) => ({ from, to, relation }))
+}
+
 /** Wipe caches for a specific token (used when user disconnects). */
 export function clearTokenCaches(token: string | null | undefined): void {
   const key = tokenKey(token)
-  snapshotByToken.delete(key)
+  for (const snapshotKey of snapshotByToken.keys()) {
+    if (snapshotKey === key || snapshotKey.startsWith(`${key}:`)) snapshotByToken.delete(snapshotKey)
+  }
   pageCacheByToken.delete(key)
 }
 
@@ -64,8 +116,11 @@ export function clearTokenCaches(token: string | null | undefined): void {
  * Fetch all accessible pages & databases from Notion. Falls back to local
  * mock workspace if Notion is unavailable or zero pages are accessible.
  */
-export async function getWorkspaceSnapshot(token?: string | null): Promise<CachedSnapshot> {
-  const key = tokenKey(token)
+export async function getWorkspaceSnapshot(
+  token?: string | null,
+  llm?: WorkspaceLlmOptions,
+): Promise<CachedSnapshot> {
+  const key = `${tokenKey(token)}:${llm?.providerOverride ?? "auto"}:${llm?.modelOverride ?? ""}`
 
   if (!isNotionConnected(token)) {
     console.log("[v0] No Notion token — using local mock workspace")
@@ -213,11 +268,35 @@ export async function getWorkspaceSnapshot(token?: string | null): Promise<Cache
       if (edges.length > before) semanticEdgeCount++
     }
 
+    let llmEdgeCount = 0
+    try {
+      const { classifyPagesWithLLM } = await import("./page-classifier")
+      const classifications = await classifyPagesWithLLM(docTexts, {
+        providerOverride: llm?.providerOverride ?? null,
+        modelOverride: llm?.modelOverride ?? null,
+        keys: llm?.keys,
+        budgetMs: llm?.budgetMs ?? 2_500,
+      })
+      if (classifications) {
+        for (const pair of buildClassificationEdges(classifications)) {
+          const before = edges.length
+          addEdge(pair.from, pair.to, pair.relation)
+          if (edges.length > before) llmEdgeCount++
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "[v0] LLM classification unavailable — semantic graph stayed deterministic:",
+        err instanceof Error ? err.message : err,
+      )
+    }
+
     console.log(
       `[v0] Built ${edges.length} edges (` +
-        `${edges.length - linkEdgeCount - semanticEdgeCount} parent, ` +
+        `${edges.length - linkEdgeCount - semanticEdgeCount - llmEdgeCount} parent, ` +
         `${linkEdgeCount} explicit links, ` +
-        `${semanticEdgeCount} semantic)`,
+        `${semanticEdgeCount} semantic, ` +
+        `${llmEdgeCount} llm)`,
     )
 
     // Cluster by connected component on the edge graph — every page that's

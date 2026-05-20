@@ -1,6 +1,7 @@
 "use client"
 
-import { BrainCircuit, MessageSquare, Plus, Settings, Plug } from "lucide-react"
+import { MessageSquare, Plus, Settings, Plug } from "lucide-react"
+import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { ChatHistoryItem } from "@/lib/vaultmind-types"
@@ -31,10 +32,8 @@ export function Sidebar({
     <aside className="flex flex-col h-full w-full md:w-[260px] md:shrink-0 md:border-r border-border bg-sidebar">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 h-14 border-b border-border shrink-0">
-        <div className="h-7 w-7 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center">
-          <BrainCircuit className="h-4 w-4 text-primary" aria-hidden />
-        </div>
-        <span className="text-sm font-semibold tracking-tight">VaultMind</span>
+        <BrandMark className="h-7 w-7" />
+        <span className="text-md font-semibold tracking-tight">graphyne</span>
       </div>
 
       {/* Workspace */}
@@ -97,7 +96,7 @@ export function Sidebar({
                     className={cn(
                       "w-full text-left px-2.5 py-2 rounded-md transition-colors group",
                       active
-                        ? "bg-accent text-accent-foreground"
+                        ? "bg-accent text-accent-foreground dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
                         : "hover:bg-accent/50 text-foreground/80",
                     )}
                   >
@@ -105,7 +104,7 @@ export function Sidebar({
                       <MessageSquare
                         className={cn(
                           "h-3 w-3 shrink-0",
-                          active ? "text-primary" : "text-muted-foreground",
+                          active ? "text-primary dark:text-sidebar-foreground" : "text-muted-foreground",
                         )}
                         aria-hidden
                       />
@@ -149,6 +148,7 @@ export function Sidebar({
           className="h-8 w-8 shrink-0"
           aria-label="Settings"
           onClick={onOpenSettings}
+          data-tour="settings-button"
         >
           <Settings className="h-3.5 w-3.5" />
         </Button>

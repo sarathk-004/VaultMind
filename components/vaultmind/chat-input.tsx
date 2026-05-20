@@ -137,7 +137,7 @@ export function ChatInput({
       </div>
 
       <p className="text-center text-[10px] text-muted-foreground mt-2 tracking-wide">
-        VaultMind queries your workspace via MCP. Press
+        Graphyne queries your workspace via MCP. Press
         <kbd className="mx-1 px-1.5 py-0.5 rounded border border-border bg-muted/40 font-mono text-[10px]">
           Enter
         </kbd>

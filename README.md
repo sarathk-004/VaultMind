@@ -1,4 +1,4 @@
-# VaultMind
+# Graphyne
 https://vault-mind-sage.vercel.app/
 
 An AI-powered Notion workspace agent that uses MCP (Model Context Protocol) to fetch real data and visualize relationships between pages as a live knowledge graph.
@@ -9,7 +9,7 @@ Built with Next.js 14 App Router, shadcn/ui, and a custom SVG graph engine — n
 
 ## What it does
 
-VaultMind sits on top of your Notion workspace and gives you two things at once: a conversational AI that answers questions about your pages, and a live knowledge graph that maps how those pages connect.
+Graphyne sits on top of your Notion workspace and gives you two things at once: a conversational AI that answers questions about your pages, and a live knowledge graph that maps how those pages connect.
 
 - Ask anything about your workspace in natural language
 - Get a written answer grounded in your actual Notion data — not the model's memory
@@ -52,7 +52,7 @@ VaultMind sits on top of your Notion workspace and gives you two things at once:
 ┌─────────────────────────────────────────────────────────┐
 │  Sidebar          │  Chat panel         │  Graph        │
 │                   │                     │               │
-│  VaultMind        │  Messages           │  Knowledge    │
+│  Graphyne        │  Messages           │  Knowledge    │
 │  Workspace name   │  Citations          │  graph        │
 │  Chat history     │  Input + intents    │  SVG nodes    │
 │  Settings         │                     │  + edges      │
@@ -117,8 +117,8 @@ Node types and their graph colors:
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/vaultmind.git
-cd vaultmind
+git clone https://github.com/your-username/graphyne.git
+cd graphyne
 npm install
 ```
 
@@ -157,11 +157,11 @@ The knowledge graph is built entirely in React + SVG — no external libraries.
 ## Project structure
 
 ```
-vaultmind/
+graphyne/
 ├── app/
 │   ├── page.tsx              # Main layout (sidebar + chat + graph)
 │   └── api/
-│       └── vaultmind/
+│       └── graphyne/
 │           └── route.ts      # API route — MCP + AI logic lives here
 ├── components/
 │   ├── Sidebar.tsx

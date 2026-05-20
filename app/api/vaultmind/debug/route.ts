@@ -38,7 +38,7 @@ export async function GET() {
         keyPreview,
         error: "Connected to Notion, but no pages found",
         help:
-          "Open the page in Notion → click 'Share' (or '...' → Connections) → add your integration. Repeat for each page or parent page you want VaultMind to query.",
+          "Open the page in Notion → click 'Share' (or '...' → Connections) → add your integration. Repeat for each page or parent page you want Graphyne to query.",
       })
     }
     return NextResponse.json({

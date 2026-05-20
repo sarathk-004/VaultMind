@@ -1,7 +1,7 @@
 "use client"
 
-import { BrainCircuit } from "lucide-react"
 import { useMemo } from "react"
+import { BrandMark } from "@/components/brand/brand-mark"
 import { cn } from "@/lib/utils"
 import { getNodeColor } from "@/lib/graph-layout"
 import type { ChatMessage } from "@/lib/vaultmind-types"
@@ -348,11 +348,9 @@ export function ChatMessageBubble({
 
   return (
     <div className="flex gap-3">
-      <div className="h-7 w-7 shrink-0 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center mt-0.5">
-        <BrainCircuit className="h-3.5 w-3.5 text-primary" aria-hidden />
-      </div>
+      <BrandMark className="mt-0.5 h-7 w-7 shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="text-xs font-medium text-muted-foreground mb-1.5">VaultMind</div>
+        <div className="text-xs font-medium text-muted-foreground mb-1.5">Graphyne</div>
         <div className="text-sm leading-relaxed text-foreground/95 whitespace-pre-wrap">
           {renderMarkdown(message.content)}
         </div>

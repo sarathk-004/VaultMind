@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { generateObject } from "ai"
 import { z } from "zod"
 import type { VaultmindRequest, VaultmindResponse, Intent } from "@/lib/vaultmind-types"
 import {
@@ -9,6 +8,8 @@ import {
   fetchPageContent,
 } from "@/lib/notion-retriever"
 import { getRequestNotionToken } from "@/lib/notion-token"
+import { generateStructured, providerOptionsFromSettings } from "@/lib/llm-client"
+import { getRequestLlmSettings, hasUserLlmKey } from "@/lib/llm-settings"
 
 const INTENT_INSTRUCTIONS: Record<Intent, string> = {
   search:
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
 
     const intentKey: Intent = intent ?? "search"
     const token = await getRequestNotionToken()
+    const llmSettings = await getRequestLlmSettings()
+    const userLlmConfigured = hasUserLlmKey(llmSettings)
     console.log(
       "[v0] API: intent=",
       intentKey,
@@ -38,10 +41,17 @@ export async function POST(req: NextRequest) {
       message.slice(0, 60),
       "tokenSource=",
       token ? "user-cookie" : process.env.NOTION_API_KEY ? "env" : "none",
+      "llmProvider=",
+      llmSettings.provider,
+      "llmKeySource=",
+      userLlmConfigured ? "user-cookie/local" : "env-or-none",
     )
 
     // 1. Retrieve workspace and rank relevant pages
-    const snap = await getWorkspaceSnapshot(token)
+    const snap = await getWorkspaceSnapshot(token, {
+      ...providerOptionsFromSettings(llmSettings),
+      budgetMs: userLlmConfigured ? 12_000 : 2_500,
+    })
     console.log(
       `[v0] API: snapshot has ${snap.pages.size} pages, ${snap.edges.length} edges, usingMock=${snap.usingMock}`,
     )
@@ -74,10 +84,12 @@ export async function POST(req: NextRequest) {
     let answer: string
 
     try {
-      const result = await generateObject({
-        model: "openai/gpt-4o-mini",
-        schema: z.object({ answer: z.string() }),
-        system: `You are VaultMind, an AI-powered Notion workspace assistant.
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), userLlmConfigured ? 18_000 : 2_500)
+      try {
+        const result = await generateStructured({
+          schema: z.object({ answer: z.string() }),
+          system: `You are Graphyne, an AI-powered Notion workspace assistant.
 
 **Current intent**: ${intentKey}
 **Instruction**: ${INTENT_INSTRUCTIONS[intentKey]}
@@ -94,9 +106,15 @@ ${contextDocs.length > 0 ? contextDocs : "_(No matching pages found in workspace
 Graph contains ${graph.nodes.length} nodes: ${graph.nodes.map(n => n.label).join(", ")}
 
 Generate a helpful answer based on this context.`,
-        temperature: 0.3,
-      })
-      answer = result.object.answer
+          signal: controller.signal,
+          label: "answer generation",
+          useCase: "answer",
+          ...providerOptionsFromSettings(llmSettings),
+        })
+        answer = result.answer
+      } finally {
+        clearTimeout(timer)
+      }
     } catch (llmErr) {
       console.warn(
         "[v0] LLM unavailable, using deterministic synthesis:",
@@ -108,7 +126,7 @@ Generate a helpful answer based on this context.`,
     const response: VaultmindResponse = { answer, graph }
     return NextResponse.json(response)
   } catch (error) {
-    console.error("[v0] VaultMind API error:", error)
+    console.error("[v0] Graphyne API error:", error)
     return NextResponse.json(
       {
         error: "Internal server error",

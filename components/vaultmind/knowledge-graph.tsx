@@ -159,6 +159,32 @@ function GraphCanvas({
     return n ? new Set(n) : new Set()
   }, [activeId, adjacency])
 
+  const densestNodeId = useMemo(() => {
+    let bestId: string | null = null
+    let bestDegree = -1
+    for (const node of positionedNodes) {
+      const degree = adjacency.get(node.id)?.size ?? 0
+      if (degree > bestDegree) {
+        bestId = node.id
+        bestDegree = degree
+      }
+    }
+    return bestId
+  }, [adjacency, positionedNodes])
+
+  const locateTargetIds = useMemo(() => {
+    if (highlightedNodeId) return [highlightedNodeId, ...Array.from(adjacency.get(highlightedNodeId) ?? [])]
+    if (showFullGraph && queryActive) return Array.from(focusedNodeIds)
+    if (densestNodeId) return [densestNodeId, ...Array.from(adjacency.get(densestNodeId) ?? [])]
+    return []
+  }, [adjacency, densestNodeId, focusedNodeIds, highlightedNodeId, queryActive, showFullGraph])
+
+  const locateLabel = highlightedNodeId
+    ? "Relocate to active node"
+    : showFullGraph && queryActive
+      ? "Relocate to active nodes"
+      : "Relocate to densest area"
+
   const isFocused = (id: string) => {
     if (!showFullGraph) return true
     if (!queryActive) return true
@@ -173,14 +199,43 @@ function GraphCanvas({
     return focusedNodeIds.has(from) && focusedNodeIds.has(to)
   }
 
+  const computeTransformForNodes = useCallback(
+    (ids: string[], opts?: { minZoom?: number; maxZoom?: number; padding?: number }) => {
+      const targets = ids
+        .map(id => positionMap.get(id))
+        .filter((node): node is PositionedNode => Boolean(node))
+
+      if (targets.length === 0) return null
+
+      const minX = Math.min(...targets.map(node => node.x - NODE_WIDTH / 2))
+      const maxX = Math.max(...targets.map(node => node.x + NODE_WIDTH / 2))
+      const minY = Math.min(...targets.map(node => node.y - NODE_HEIGHT / 2))
+      const maxY = Math.max(...targets.map(node => node.y + NODE_HEIGHT / 2))
+      const width = Math.max(maxX - minX, NODE_WIDTH)
+      const height = Math.max(maxY - minY, NODE_HEIGHT)
+      const padding = opts?.padding ?? (targets.length === 1 ? 180 : 130)
+      const fit = Math.min(size.width / (width + padding), size.height / (height + padding), opts?.maxZoom ?? MAX_ZOOM)
+      const k = Math.min(opts?.maxZoom ?? MAX_ZOOM, Math.max(opts?.minZoom ?? MIN_ZOOM, fit))
+      const cx = (minX + maxX) / 2
+      const cy = (minY + maxY) / 2
+
+      return {
+        k,
+        x: size.width / 2 - cx * k,
+        y: size.height / 2 - cy * k,
+      }
+    },
+    [positionMap, size.height, size.width],
+  )
+
   const nodeOpacity = (id: string) => {
     if (activeId) {
       if (id === activeId) return 1
       if (activeNeighbors.has(id)) return 0.95
-      return isFocused(id) ? 0.5 : 0.18
+      return isFocused(id) ? 0.64 : 0.34
     }
-    if (showFullGraph && queryActive) return isFocused(id) ? 1 : 0.22
-    return 0.92
+    if (showFullGraph && queryActive) return isFocused(id) ? 1 : 0.62
+    return 0.96
   }
 
   const edgeOpacity = (from: string, to: string) => {
@@ -313,7 +368,7 @@ function GraphCanvas({
   // the user pans to navigate. Fullscreen uses the true fit value.
   const computeFitTransform = useCallback(() => {
     const fit = Math.min(size.width / virtualSize.w, size.height / virtualSize.h, 1)
-    const minReadable = fullscreen ? fit : Math.max(fit, 0.55)
+    const minReadable = Math.max(fit, fullscreen ? 0.52 : 0.55)
     const k = minReadable
     return {
       k,
@@ -325,17 +380,41 @@ function GraphCanvas({
   // Re-center on graph change
   const lastGraphKey = useRef<string>("")
   useEffect(() => {
-    const key = (renderGraph?.nodes ?? []).map(n => n.id).join("|")
+    const renderKey = (renderGraph?.nodes ?? []).map(n => n.id).join("|")
+    const focusedKey = Array.from(focusedNodeIds).join("|")
+    const key = `${renderKey}::focused=${focusedKey}::fullscreen=${fullscreen}`
     if (key === lastGraphKey.current) return
     lastGraphKey.current = key
     if (!renderGraph || renderGraph.nodes.length === 0) return
-    setTransform(computeFitTransform())
-  }, [renderGraph, computeFitTransform])
+    const focusedTransform = queryActive
+      ? computeTransformForNodes(Array.from(focusedNodeIds), {
+          minZoom: fullscreen ? 0.18 : 0.24,
+          maxZoom: fullscreen ? 1.45 : 1.25,
+          padding: fullscreen ? 220 : 150,
+        })
+      : null
+    setTransform(focusedTransform ?? computeFitTransform())
+  }, [computeFitTransform, computeTransformForNodes, focusedNodeIds, fullscreen, queryActive, renderGraph])
 
   const recenter = () => {
     if (!renderGraph || renderGraph.nodes.length === 0) return
     setTransform(computeFitTransform())
     setDragOverrides(new Map())
+  }
+
+  const relocateToActive = () => {
+    if (!renderGraph || renderGraph.nodes.length === 0) return
+    const nextTransform = computeTransformForNodes(locateTargetIds, {
+      minZoom: fullscreen ? 0.48 : 0.65,
+      maxZoom: fullscreen ? 1.6 : 1.35,
+      padding: locateTargetIds.length <= 1 ? 180 : fullscreen ? 220 : 130,
+    })
+
+    if (!nextTransform) {
+      recenter()
+      return
+    }
+    setTransform(nextTransform)
   }
 
   const zoomBy = (factor: number) => {
@@ -359,7 +438,6 @@ function GraphCanvas({
 
   const totalNodes = renderGraph?.nodes.length ?? 0
   const totalEdges = renderGraph?.edges.length ?? 0
-  const focusedCount = focusedNodeIds.size
 
   const isEmpty = !workspaceLoading && (!renderGraph || renderGraph.nodes.length === 0)
 
@@ -369,13 +447,9 @@ function GraphCanvas({
         <div className="flex items-center gap-2 min-w-0">
           <Network className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
           <h2 className="text-sm font-medium tracking-tight">Knowledge Graph</h2>
-          <span className="text-xs text-muted-foreground ml-2 truncate">
-            {workspaceLoading
-              ? "Loading workspace…"
-              : showFullGraph && queryActive
-              ? `${focusedCount} focused · ${totalNodes} shown`
-              : `${totalNodes} nodes · ${totalEdges} edges`}
-          </span>
+          {workspaceLoading && (
+            <span className="text-xs text-muted-foreground ml-2 truncate">Loading workspace…</span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
@@ -384,7 +458,15 @@ function GraphCanvas({
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={recenter} aria-label="Recenter">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={relocateToActive}
+            aria-label={locateLabel}
+            title={locateLabel}
+            data-tour="graph-locate"
+          >
             <Locate className="h-3.5 w-3.5" />
           </Button>
           <Button
@@ -404,6 +486,7 @@ function GraphCanvas({
         className="relative flex-1 graph-grid overflow-hidden select-none"
         style={{ cursor: interactionRef.current.type === "pan" ? "grabbing" : "grab" }}
         onMouseDown={onBackgroundMouseDown}
+        onMouseLeave={() => setHoveredId(null)}
       >
         {workspaceLoading && (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground pointer-events-none">
@@ -430,8 +513,8 @@ function GraphCanvas({
           </div>
         )}
 
-        {!isEmpty && !workspaceLoading && showFullGraph && !queryActive && (
-          <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 z-10">
+        {!isEmpty && !workspaceLoading && (
+          <div className="pointer-events-none sticky top-3 z-10 mx-auto flex w-fit">
             <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80 bg-background/70 backdrop-blur-sm px-2.5 py-1 rounded border border-border/60">
               Drag · scroll to zoom · ask to focus
             </div>
@@ -478,12 +561,12 @@ function GraphCanvas({
                     fill="none"
                     stroke={
                       active
-                        ? "#60a5fa"
+                        ? "var(--graph-edge-active)"
                         : focused && showFullGraph && queryActive
-                        ? "#9ca3af"
+                        ? "var(--graph-edge-focused)"
                         : isSemantic
-                        ? "#3f3f46"
-                        : "#525252"
+                        ? "var(--graph-edge-semantic)"
+                        : "var(--graph-edge)"
                     }
                     strokeWidth={(active ? 1.5 : isSemantic ? 0.75 : 1) / transform.k}
                     strokeOpacity={
@@ -576,27 +659,13 @@ function GraphCanvas({
       </div>
 
       <footer className="flex items-center gap-3 px-4 h-10 border-t border-border text-xs text-muted-foreground shrink-0 overflow-x-auto">
-        <LegendDot color="#3b82f6" label="Page" />
-        <LegendDot color="#a855f7" label="Database" />
-        <LegendDot color="#22c55e" label="Task" />
-        <LegendDot color="#f59e0b" label="Note" />
+        <span className="font-medium text-foreground/80">{totalNodes} nodes</span>
+        <span className="h-1 w-1 rounded-full bg-muted-foreground/50" aria-hidden />
+        <span className="font-medium text-foreground/80">{totalEdges} links</span>
         <span className="ml-auto text-[10px] text-muted-foreground/70">
           {Math.round(transform.k * 100)}%
         </span>
       </footer>
     </>
-  )
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1.5 shrink-0">
-      <span
-        className="inline-block h-2 w-2 rounded-full"
-        style={{ backgroundColor: color }}
-        aria-hidden
-      />
-      <span>{label}</span>
-    </div>
   )
 }

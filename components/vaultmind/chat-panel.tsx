@@ -1,7 +1,8 @@
 "use client"
 
-import { BrainCircuit, Menu, Network, Trash2 } from "lucide-react"
+import { Menu, Network, Trash2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
 import { ChatInput } from "./chat-input"
 import { ChatMessageBubble } from "./chat-message"
@@ -159,14 +160,16 @@ export function ChatPanel(props: ChatPanelProps) {
       </div>
 
       {/* Input */}
-      <ChatInput
-        value={inputValue}
-        onChange={onInputChange}
-        intent={intent}
-        onIntentChange={onIntentChange}
-        onSubmit={onSubmit}
-        loading={loading}
-      />
+      <div data-tour="chat-input">
+        <ChatInput
+          value={inputValue}
+          onChange={onInputChange}
+          intent={intent}
+          onIntentChange={onIntentChange}
+          onSubmit={onSubmit}
+          loading={loading}
+        />
+      </div>
     </section>
   )
 }
@@ -181,12 +184,10 @@ function EmptyChatState({ intent }: { intent: Intent }) {
 
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 sm:py-16">
-      <div className="h-12 w-12 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
-        <BrainCircuit className="h-5 w-5 text-primary" aria-hidden />
-      </div>
+      <BrandMark className="mb-4 h-12 w-12 rounded-lg" />
       <h3 className="text-base font-semibold tracking-tight">Ask anything about your workspace</h3>
       <p className="text-sm text-muted-foreground mt-1.5 max-w-md text-balance px-4">
-        {intentText[intent]} VaultMind queries your Notion vault via MCP and visualizes connections live.
+        {intentText[intent]} Graphyne queries your Notion vault via MCP and visualizes connections live.
       </p>
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full px-4">
         {SAMPLE_PROMPTS.map(p => (
@@ -212,9 +213,7 @@ const SAMPLE_PROMPTS = [
 function TypingIndicator({ status }: { status: string }) {
   return (
     <div className="flex gap-3">
-      <div className="h-7 w-7 shrink-0 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center mt-0.5">
-        <BrainCircuit className="h-3.5 w-3.5 text-primary" aria-hidden />
-      </div>
+      <BrandMark className="mt-0.5 h-7 w-7 shrink-0" />
       <div className="flex flex-col gap-2 pt-1.5">
         <div className="flex items-center gap-1.5">
           <span className="vm-dot h-1.5 w-1.5 rounded-full bg-primary" />

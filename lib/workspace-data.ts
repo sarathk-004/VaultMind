@@ -148,7 +148,7 @@ export const NOTE_CONTENT: Record<string, NoteContent> = {
     type: "database",
     relatedNodes: ["product-strategy", "feature-requests", "analytics-dashboard"],
     content:
-      "## Customer Feedback\n\n### Themes (last 30 days)\n1. **Graph density** — users want to control how many nodes show\n2. **Citations** — wish they linked to the exact paragraph\n3. **Mobile** — needs to be useful on phone\n4. **Workspaces** — multi-vault support requested 14 times\n\n### Quote of the week\n_\"VaultMind is the first AI tool that respects what I already wrote.\"_ — Priya, Stripe",
+      "## Customer Feedback\n\n### Themes (last 30 days)\n1. **Graph density** — users want to control how many nodes show\n2. **Citations** — wish they linked to the exact paragraph\n3. **Mobile** — needs to be useful on phone\n4. **Workspaces** — multi-vault support requested 14 times\n\n### Quote of the week\n_\"Graphyne is the first AI tool that respects what I already wrote.\"_ — Priya, Stripe",
   },
   "content-calendar": {
     id: "content-calendar",
@@ -156,7 +156,7 @@ export const NOTE_CONTENT: Record<string, NoteContent> = {
     type: "database",
     relatedNodes: ["go-to-market-plan", "brand-guidelines", "task-prep-launch"],
     content:
-      "## Content Calendar — Mar / Apr\n\n### Mar 18 — Blog: Why graphs beat lists for AI memory\n### Mar 25 — Customer story: How Linear uses VaultMind\n### Apr 02 — Launch post for Release 2.4\n### Apr 09 — Tutorial: Connecting your vault to MCP\n### Apr 16 — Webinar: Knowledge ops for engineering teams",
+      "## Content Calendar — Mar / Apr\n\n### Mar 18 — Blog: Why graphs beat lists for AI memory\n### Mar 25 — Customer story: How Linear uses Graphyne\n### Apr 02 — Launch post for Release 2.4\n### Apr 09 — Tutorial: Connecting your vault to MCP\n### Apr 16 — Webinar: Knowledge ops for engineering teams",
   },
   "feature-requests": {
     id: "feature-requests",
@@ -220,7 +220,7 @@ export const NOTE_CONTENT: Record<string, NoteContent> = {
     type: "task",
     relatedNodes: ["bug-tracker", "task-review-pr-284", "security-policies"],
     content:
-      "## Fix Auth Bug (BUG-1284)\n\n**Severity**: P0\n**Owner**: @kenji\n**Status**: Fix in PR #284\n\n### Repro\n1. Open VaultMind on Safari 17\n2. Wait > 60 minutes\n3. Refresh — user is signed out\n\n### Root cause\nThird-party cookie blocking breaks the silent refresh flow.",
+      "## Fix Auth Bug (BUG-1284)\n\n**Severity**: P0\n**Owner**: @kenji\n**Status**: Fix in PR #284\n\n### Repro\n1. Open Graphyne on Safari 17\n2. Wait > 60 minutes\n3. Refresh — user is signed out\n\n### Root cause\nThird-party cookie blocking breaks the silent refresh flow.",
   },
   "task-design-review": {
     id: "task-design-review",

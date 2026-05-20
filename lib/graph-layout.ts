@@ -268,10 +268,10 @@ export function truncateLabel(label: string, max = 20): string {
 }
 
 export const NODE_TYPE_COLORS: Record<string, { fill: string; stroke: string; text: string }> = {
-  page: { fill: "rgba(59, 130, 246, 0.18)", stroke: "#3b82f6", text: "#bfdbfe" },
-  database: { fill: "rgba(168, 85, 247, 0.18)", stroke: "#a855f7", text: "#e9d5ff" },
-  task: { fill: "rgba(34, 197, 94, 0.18)", stroke: "#22c55e", text: "#bbf7d0" },
-  note: { fill: "rgba(245, 158, 11, 0.18)", stroke: "#f59e0b", text: "#fde68a" },
+  page: { fill: "var(--node-page-fill)", stroke: "var(--node-page)", text: "var(--node-page-text)" },
+  database: { fill: "var(--node-database-fill)", stroke: "var(--node-database)", text: "var(--node-database-text)" },
+  task: { fill: "var(--node-task-fill)", stroke: "var(--node-task)", text: "var(--node-task-text)" },
+  note: { fill: "var(--node-note-fill)", stroke: "var(--node-note)", text: "var(--node-note-text)" },
 }
 
 export function getNodeColor(type?: string) {

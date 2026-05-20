@@ -8,6 +8,7 @@ import { CitationDrawer } from "@/components/vaultmind/citation-drawer"
 import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
 import { ConnectDialog } from "@/components/vaultmind/connect-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Button } from "@/components/ui/button"
 import type {
   ChatHistoryItem,
   ChatMessage,
@@ -24,6 +25,40 @@ const LOADING_STATUSES = [
 ]
 
 const SEED_HISTORY: ChatHistoryItem[] = []
+const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
+
+const WALKTHROUGH_STEPS = [
+  {
+    target: '[data-tour="sidebar"]',
+    title: "Your workspace lives here",
+    body: "Start new conversations, revisit chat history, connect Notion, and open settings from the sidebar.",
+    placement: "right",
+  },
+  {
+    target: '[data-tour="chat-input"]',
+    title: "Ask with intent",
+    body: "Choose search, summarize, connect, or brief, then ask Graphyne to work across your workspace.",
+    placement: "top",
+  },
+  {
+    target: '[data-tour="graph-panel"]',
+    title: "Watch answers become a map",
+    body: "The graph shows the pages and links behind the answer. Hover a node to fade unrelated nodes and reveal the neighborhood.",
+    placement: "left",
+  },
+  {
+    target: '[data-tour="graph-locate"]',
+    title: "Jump back into context",
+    body: "This locate control moves the graph to the active node set. With no active answer, it finds the densest area.",
+    placement: "left",
+  },
+  {
+    target: '[data-tour="settings-button"]',
+    title: "Tune the experience",
+    body: "Settings lets you switch theme, control graph display, choose model providers, and manage workspace behavior.",
+    placement: "top",
+  },
+] as const
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`
@@ -35,7 +70,7 @@ interface WorkspaceState {
   connected: boolean
 }
 
-export default function VaultMindPage() {
+export default function GraphynePage() {
   // ── Workspace snapshot (fetched on mount via /api/vaultmind/workspace) ────
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     graph: null,
@@ -100,10 +135,21 @@ export default function VaultMindPage() {
   const [connectOpen, setConnectOpen] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false)
 
   // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
   const [graphMotion, setGraphMotion] = useState(true)
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(WALKTHROUGH_STORAGE_KEY) !== "true") {
+        setWalkthroughOpen(true)
+      }
+    } catch {
+      setWalkthroughOpen(true)
+    }
+  }, [])
 
   // Track citation chip DOM nodes for scroll-into-view from graph clicks
   const citationRefs = useRef<Map<string, Map<string, HTMLElement>>>(new Map())
@@ -303,6 +349,15 @@ export default function VaultMindPage() {
     }
   }, [])
 
+  const closeWalkthrough = useCallback(() => {
+    try {
+      window.localStorage.setItem(WALKTHROUGH_STORAGE_KEY, "true")
+    } catch {
+      // Ignore storage failures; closing the dialog should still work.
+    }
+    setWalkthroughOpen(false)
+  }, [])
+
   // Suppress unused-var lint until we wire animation toggling through.
   void graphMotion
 
@@ -310,7 +365,7 @@ export default function VaultMindPage() {
   return (
     <main className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
       {/* Desktop sidebar */}
-      <div className="hidden md:flex h-full">
+      <div className="hidden md:flex h-full" data-tour="sidebar">
         <Sidebar
           history={history}
           activeChatId={activeChatId}
@@ -349,28 +404,30 @@ export default function VaultMindPage() {
       </Sheet>
 
       {/* Center chat */}
-      <ChatPanel
-        title={chatTitle}
-        onTitleChange={renameCurrentChat}
-        messages={messages}
-        loading={loading}
-        loadingStatus={loadingStatus}
-        inputValue={inputValue}
-        onInputChange={setInputValue}
-        intent={intent}
-        onIntentChange={setIntent}
-        onSubmit={handleSubmit}
-        onClear={handleClear}
-        highlightedNodeId={highlightedNodeId}
-        onCitationClick={handleCitationClick}
-        onCitationOpen={handleCitationOpen}
-        registerCitationRef={registerCitationRef}
-        onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
-        onOpenMobileGraph={() => setMobileGraphOpen(true)}
-      />
+      <div className="flex flex-1 min-w-0" data-tour="chat-panel">
+        <ChatPanel
+          title={chatTitle}
+          onTitleChange={renameCurrentChat}
+          messages={messages}
+          loading={loading}
+          loadingStatus={loadingStatus}
+          inputValue={inputValue}
+          onInputChange={setInputValue}
+          intent={intent}
+          onIntentChange={setIntent}
+          onSubmit={handleSubmit}
+          onClear={handleClear}
+          highlightedNodeId={highlightedNodeId}
+          onCitationClick={handleCitationClick}
+          onCitationOpen={handleCitationOpen}
+          registerCitationRef={registerCitationRef}
+          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+          onOpenMobileGraph={() => setMobileGraphOpen(true)}
+        />
+      </div>
 
       {/* Desktop graph */}
-      <div className="hidden lg:flex h-full">
+      <div className="hidden lg:flex h-full" data-tour="graph-panel">
         <KnowledgeGraphPanel
           workspaceGraph={workspace.graph}
           focusedGraph={focusedGraph}
@@ -404,7 +461,10 @@ export default function VaultMindPage() {
         workspaceGraph={workspace.graph}
         open={citationNodeId !== null}
         onOpenChange={open => {
-          if (!open) setCitationNodeId(null)
+          if (!open) {
+            setCitationNodeId(null)
+            setHighlightedNodeId(null)
+          }
         }}
         onJumpToNode={nodeId => {
           setCitationNodeId(nodeId)
@@ -422,6 +482,7 @@ export default function VaultMindPage() {
         onGraphMotionChange={setGraphMotion}
         workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
         workspaceConnected={workspace.connected}
+        onLlmSettingsChange={() => void reloadWorkspace()}
       />
 
       {/* Connect dialog — bring-your-own Notion token */}
@@ -430,6 +491,192 @@ export default function VaultMindPage() {
         onOpenChange={setConnectOpen}
         onConnectionChange={() => void reloadWorkspace()}
       />
+
+      <WalkthroughTour
+        open={walkthroughOpen}
+        onOpenChange={open => {
+          if (!open) closeWalkthrough()
+          else setWalkthroughOpen(true)
+        }}
+        onDone={closeWalkthrough}
+      />
     </main>
+  )
+}
+
+function WalkthroughTour({
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onDone: () => void
+}) {
+  const [stepIndex, setStepIndex] = useState(0)
+  const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
+
+  const step = WALKTHROUGH_STEPS[stepIndex]
+  const isLast = stepIndex === WALKTHROUGH_STEPS.length - 1
+
+  useEffect(() => {
+    if (!open) return
+
+    const updateTarget = () => {
+      const target = document.querySelector(step.target)
+      if (!target) {
+        setTargetRect(null)
+        return
+      }
+      const rect = target.getBoundingClientRect()
+      setTargetRect(rect)
+      target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" })
+    }
+
+    updateTarget()
+    window.addEventListener("resize", updateTarget)
+    window.addEventListener("scroll", updateTarget, true)
+    return () => {
+      window.removeEventListener("resize", updateTarget)
+      window.removeEventListener("scroll", updateTarget, true)
+    }
+  }, [open, step.target])
+
+  if (!open) return null
+
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth
+  const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight
+  const cardWidth = Math.min(340, viewportWidth - 32)
+  const fallbackRect = {
+    top: viewportHeight / 2 - 40,
+    left: viewportWidth / 2 - 80,
+    width: 160,
+    height: 80,
+    right: viewportWidth / 2 + 80,
+    bottom: viewportHeight / 2 + 40,
+  } as DOMRect
+  const safeRect = targetRect ?? fallbackRect
+  const padding = 10
+  const spotlight = {
+    top: Math.max(8, safeRect.top - padding),
+    left: Math.max(8, safeRect.left - padding),
+    width: Math.min(viewportWidth - 16, safeRect.width + padding * 2),
+    height: Math.min(viewportHeight - 16, safeRect.height + padding * 2),
+  }
+  const spotlightRight = Math.min(viewportWidth, spotlight.left + spotlight.width)
+  const spotlightBottom = Math.min(viewportHeight, spotlight.top + spotlight.height)
+
+  const placeLeft = step.placement === "left"
+  const placeTop = step.placement === "top"
+  const cardLeft = placeLeft
+    ? Math.max(16, safeRect.left - cardWidth - 18)
+    : Math.min(viewportWidth - cardWidth - 16, Math.max(16, safeRect.right + 18))
+  const topPlacementLeft = Math.min(
+    viewportWidth - cardWidth - 16,
+    Math.max(16, safeRect.left + safeRect.width / 2 - cardWidth / 2),
+  )
+  const cardTop = placeTop
+    ? Math.max(16, safeRect.top - 210)
+    : Math.min(viewportHeight - 260, Math.max(16, safeRect.top + safeRect.height / 2 - 120))
+
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title">
+      <div
+        className="absolute left-0 right-0 top-0 bg-background/70 backdrop-blur-[1px]"
+        style={{ height: spotlight.top }}
+        aria-hidden
+      />
+      <div
+        className="absolute left-0 bg-background/70 backdrop-blur-[1px]"
+        style={{
+          top: spotlight.top,
+          width: spotlight.left,
+          height: spotlight.height,
+        }}
+        aria-hidden
+      />
+      <div
+        className="absolute right-0 bg-background/70 backdrop-blur-[1px]"
+        style={{
+          top: spotlight.top,
+          left: spotlightRight,
+          height: spotlight.height,
+        }}
+        aria-hidden
+      />
+      <div
+        className="absolute bottom-0 left-0 right-0 bg-background/70 backdrop-blur-[1px]"
+        style={{ top: spotlightBottom }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute rounded-lg border-2 border-primary ring-4 ring-primary/15 transition-all duration-300"
+        style={{
+          top: spotlight.top,
+          left: spotlight.left,
+          width: spotlight.width,
+          height: spotlight.height,
+        }}
+        aria-hidden
+      />
+
+      <div
+        className="absolute rounded-md border border-border bg-popover p-4 text-popover-foreground shadow-xl transition-all duration-300"
+        style={{
+          width: cardWidth,
+          left: placeTop ? topPlacementLeft : cardLeft,
+          top: cardTop,
+        }}
+      >
+        <div
+          className={
+            "absolute h-3 w-3 rotate-45 border border-border bg-popover " +
+            (placeTop
+              ? "left-1/2 -bottom-1.5 -translate-x-1/2 border-l-0 border-t-0"
+              : placeLeft
+                ? "-right-1.5 top-1/2 -translate-y-1/2 border-b-0 border-l-0"
+                : "-left-1.5 top-1/2 -translate-y-1/2 border-r-0 border-t-0")
+          }
+          aria-hidden
+        />
+        <div className="relative">
+          <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Step {stepIndex + 1} of {WALKTHROUGH_STEPS.length}
+          </div>
+          <h2 id="walkthrough-title" className="text-base font-semibold tracking-tight">
+            {step.title}
+          </h2>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{step.body}</p>
+
+          <div className="mt-4 flex items-center justify-between gap-2">
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => onOpenChange(false)}>
+              Skip
+            </Button>
+            <div className="flex items-center gap-1">
+              {WALKTHROUGH_STEPS.map((item, index) => (
+                <span
+                  key={item.target}
+                  className={
+                    "h-1.5 rounded-full transition-all " +
+                    (index === stepIndex ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/35")
+                  }
+                  aria-hidden
+                />
+              ))}
+            </div>
+            <Button
+              size="sm"
+              className="h-8 px-3 text-xs"
+              onClick={() => {
+                if (isLast) onDone()
+                else setStepIndex(prev => prev + 1)
+              }}
+            >
+              {isLast ? "Start" : "Next"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
