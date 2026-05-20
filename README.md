@@ -14,7 +14,9 @@ Graphyne sits on top of your Notion workspace and gives you two things at once: 
 * Watch a graph render in real time showing which pages relate, and how
 * Click any citation chip in the chat to highlight the matching node in the graph, and vice versa
 
-Frame 171 Frame 172 Frame 173
+<img width="6048" height="5088" alt="Frame 172 (3)" src="https://github.com/user-attachments/assets/d270e788-4f60-4813-897c-b18ad1633843" />
+<img width="6048" height="5088" alt="Frame 171 (4)" src="https://github.com/user-attachments/assets/41ebc8aa-bdd0-461f-b2b5-23d3af882aa7" />
+<img width="6048" height="5088" alt="Frame 173 (3)" src="https://github.com/user-attachments/assets/1b008721-c6e0-4ae1-be3d-29c83cabcc93" />
 
 ## Features
 
