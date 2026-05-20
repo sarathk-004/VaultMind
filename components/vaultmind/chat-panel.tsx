@@ -84,6 +84,7 @@ export function ChatPanel(props: ChatPanelProps) {
             className="md:hidden h-8 w-8 shrink-0"
             aria-label="Open menu"
             onClick={onOpenMobileSidebar}
+            data-tour="mobile-menu-button"
           >
             <Menu className="h-4 w-4" />
           </Button>
@@ -133,6 +134,7 @@ export function ChatPanel(props: ChatPanelProps) {
             className="lg:hidden h-8 w-8"
             aria-label="Open knowledge graph"
             onClick={onOpenMobileGraph}
+            data-tour="mobile-graph-button"
           >
             <Network className="h-4 w-4" />
           </Button>

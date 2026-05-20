@@ -249,16 +249,23 @@ function GraphCanvas({
   // ── Pan + zoom + drag handlers ──────────────────────────────────────
 
   const interactionRef = useRef<{
-    type: "pan" | "node" | null
+    type: "pan" | "node" | "pinch" | null
     nodeId?: string
+    startPointerId?: number
     startClientX: number
     startClientY: number
     startNodeX?: number
     startNodeY?: number
     startTx?: number
     startTy?: number
+    startK?: number
+    startDistance?: number
+    startWorldX?: number
+    startWorldY?: number
     moved?: boolean
   }>({ type: null, startClientX: 0, startClientY: 0 })
+  const activePointersRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map())
+  const lastInteractionMovedRef = useRef(false)
 
   const screenToWorld = useCallback(
     (clientX: number, clientY: number) => {
@@ -300,10 +307,37 @@ function GraphCanvas({
     return () => el.removeEventListener("wheel", handler)
   }, [])
 
-  const onBackgroundMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return
+  const beginPinchIfReady = useCallback(() => {
+    const pointers = Array.from(activePointersRef.current.values())
+    if (pointers.length < 2) return false
+    const [a, b] = pointers
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return false
+    const centerX = (a.clientX + b.clientX) / 2 - rect.left
+    const centerY = (a.clientY + b.clientY) / 2 - rect.top
+    const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY) || 1
+    interactionRef.current = {
+      type: "pinch",
+      startClientX: centerX,
+      startClientY: centerY,
+      startK: transform.k,
+      startDistance: distance,
+      startWorldX: (centerX - transform.x) / transform.k,
+      startWorldY: (centerY - transform.y) / transform.k,
+      moved: false,
+    }
+    return true
+  }, [transform])
+
+  const onBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return
+    activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY })
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    lastInteractionMovedRef.current = false
+    if (beginPinchIfReady()) return
     interactionRef.current = {
       type: "pan",
+      startPointerId: e.pointerId,
       startClientX: e.clientX,
       startClientY: e.clientY,
       startTx: transform.x,
@@ -312,14 +346,19 @@ function GraphCanvas({
     }
   }
 
-  const onNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
+  const onNodePointerDown = (e: React.PointerEvent, nodeId: string) => {
     e.stopPropagation()
-    if (e.button !== 0) return
+    if (e.pointerType === "mouse" && e.button !== 0) return
+    activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY })
+    containerRef.current?.setPointerCapture?.(e.pointerId)
+    lastInteractionMovedRef.current = false
+    if (beginPinchIfReady()) return
     const node = positionMap.get(nodeId)
     if (!node) return
     interactionRef.current = {
       type: "node",
       nodeId,
+      startPointerId: e.pointerId,
       startClientX: e.clientX,
       startClientY: e.clientY,
       startNodeX: node.x,
@@ -329,12 +368,37 @@ function GraphCanvas({
   }
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
+      if (!activePointersRef.current.has(e.pointerId)) return
+      activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY })
       const it = interactionRef.current
       if (!it.type) return
+      if (it.type === "pinch") {
+        const pointers = Array.from(activePointersRef.current.values())
+        if (pointers.length < 2) return
+        const [a, b] = pointers
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (!rect) return
+        const centerX = (a.clientX + b.clientX) / 2 - rect.left
+        const centerY = (a.clientY + b.clientY) / 2 - rect.top
+        const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY) || 1
+        const ratio = distance / (it.startDistance || distance)
+        const newK = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (it.startK || transform.k) * ratio))
+        setTransform({
+          k: newK,
+          x: centerX - (it.startWorldX || 0) * newK,
+          y: centerY - (it.startWorldY || 0) * newK,
+        })
+        it.moved = true
+        lastInteractionMovedRef.current = true
+        return
+      }
+
+      if (it.startPointerId !== e.pointerId) return
       const dx = e.clientX - it.startClientX
       const dy = e.clientY - it.startClientY
       if (Math.abs(dx) + Math.abs(dy) > 3) it.moved = true
+      if (it.moved) lastInteractionMovedRef.current = true
 
       if (it.type === "pan") {
         setTransform(prev => ({
@@ -352,16 +416,24 @@ function GraphCanvas({
         })
       }
     }
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
+      activePointersRef.current.delete(e.pointerId)
+      lastInteractionMovedRef.current = Boolean(interactionRef.current.moved)
+      if (activePointersRef.current.size >= 2) {
+        beginPinchIfReady()
+        return
+      }
       interactionRef.current = { type: null, startClientX: 0, startClientY: 0 }
     }
-    window.addEventListener("mousemove", onMove)
-    window.addEventListener("mouseup", onUp)
+    window.addEventListener("pointermove", onMove, { passive: false })
+    window.addEventListener("pointerup", onUp)
+    window.addEventListener("pointercancel", onUp)
     return () => {
-      window.removeEventListener("mousemove", onMove)
-      window.removeEventListener("mouseup", onUp)
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      window.removeEventListener("pointercancel", onUp)
     }
-  }, [transform.k])
+  }, [beginPinchIfReady, transform.k])
 
   // Computes a zoom level that fits, but clamps to a readable minimum so the
   // side panel doesn't end up at 8% zoom when there are 100+ nodes — instead
@@ -432,7 +504,10 @@ function GraphCanvas({
   }
 
   const handleNodeClickGuarded = (id: string) => {
-    if (interactionRef.current.moved) return // suppress click after drag
+    if (lastInteractionMovedRef.current) {
+      lastInteractionMovedRef.current = false
+      return
+    }
     onNodeClick(id)
   }
 
@@ -483,10 +558,12 @@ function GraphCanvas({
 
       <div
         ref={containerRef}
-        className="relative flex-1 graph-grid overflow-hidden select-none"
+        className="relative flex-1 graph-grid overflow-hidden select-none touch-none"
         style={{ cursor: interactionRef.current.type === "pan" ? "grabbing" : "grab" }}
-        onMouseDown={onBackgroundMouseDown}
-        onMouseLeave={() => setHoveredId(null)}
+        onPointerDown={onBackgroundPointerDown}
+        onPointerLeave={e => {
+          if (e.pointerType === "mouse") setHoveredId(null)
+        }}
       >
         {workspaceLoading && (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground pointer-events-none">
@@ -516,7 +593,7 @@ function GraphCanvas({
         {!isEmpty && !workspaceLoading && (
           <div className="pointer-events-none sticky top-3 z-10 mx-auto flex w-fit">
             <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80 bg-background/70 backdrop-blur-sm px-2.5 py-1 rounded border border-border/60">
-              Drag · scroll to zoom · ask to focus
+              Drag · pinch or scroll to zoom · ask to focus
             </div>
           </div>
         )}
@@ -597,9 +674,13 @@ function GraphCanvas({
                       opacity: nodeOpacity(node.id),
                       cursor: "pointer",
                     }}
-                    onMouseEnter={() => setHoveredId(node.id)}
-                    onMouseLeave={() => setHoveredId(null)}
-                    onMouseDown={e => onNodeMouseDown(e, node.id)}
+                    onPointerEnter={e => {
+                      if (e.pointerType === "mouse") setHoveredId(node.id)
+                    }}
+                    onPointerLeave={e => {
+                      if (e.pointerType === "mouse") setHoveredId(null)
+                    }}
+                    onPointerDown={e => onNodePointerDown(e, node.id)}
                     onClick={() => handleNodeClickGuarded(node.id)}
                     role="button"
                     tabIndex={0}

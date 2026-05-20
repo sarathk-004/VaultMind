@@ -9,6 +9,7 @@ import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
 import { ConnectDialog } from "@/components/vaultmind/connect-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+import { useIsMobile } from "@/hooks/use-mobile"
 import type {
   ChatHistoryItem,
   ChatMessage,
@@ -27,7 +28,17 @@ const LOADING_STATUSES = [
 const SEED_HISTORY: ChatHistoryItem[] = []
 const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
 
-const WALKTHROUGH_STEPS = [
+type WalkthroughSurface = "main" | "sidebar" | "graph"
+
+type WalkthroughStep = {
+  target: string
+  title: string
+  body: string
+  placement: "left" | "right" | "top" | "bottom"
+  surface?: WalkthroughSurface
+}
+
+const DESKTOP_WALKTHROUGH_STEPS: WalkthroughStep[] = [
   {
     target: '[data-tour="sidebar"]',
     title: "Your workspace lives here",
@@ -58,7 +69,52 @@ const WALKTHROUGH_STEPS = [
     body: "Settings lets you switch theme, control graph display, choose model providers, and manage workspace behavior.",
     placement: "top",
   },
-] as const
+]
+
+const MOBILE_WALKTHROUGH_STEPS: WalkthroughStep[] = [
+  {
+    target: '[data-tour="mobile-menu-button"]',
+    title: "Workspace controls move into the menu",
+    body: "On phones, chat history, Notion connection, new chats, and settings live behind this menu button.",
+    placement: "bottom",
+    surface: "main",
+  },
+  {
+    target: '[data-tour="chat-input"]',
+    title: "Ask from the bottom bar",
+    body: "Choose an intent and send your question from the same composer, sized for thumb reach.",
+    placement: "top",
+    surface: "main",
+  },
+  {
+    target: '[data-tour="mobile-graph-button"]',
+    title: "Open the graph as a sheet",
+    body: "The knowledge graph is separate from chat on smaller screens so the answer stays readable.",
+    placement: "bottom",
+    surface: "main",
+  },
+  {
+    target: '[data-tour="mobile-graph-panel"]',
+    title: "Explore with touch",
+    body: "Drag the canvas to pan, drag nodes to rearrange them, pinch or use the zoom buttons, and tap a node to select it.",
+    placement: "left",
+    surface: "graph",
+  },
+  {
+    target: '[data-tour="graph-locate"]',
+    title: "Recentre the mobile graph",
+    body: "Use locate after panning around to jump back to the active answer or the densest cluster.",
+    placement: "bottom",
+    surface: "graph",
+  },
+  {
+    target: '[data-tour="mobile-sidebar"]',
+    title: "Settings stay in the mobile menu",
+    body: "Open the menu when you want theme, model, workspace, or graph display controls.",
+    placement: "right",
+    surface: "sidebar",
+  },
+]
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`
@@ -71,6 +127,7 @@ interface WorkspaceState {
 }
 
 export default function GraphynePage() {
+  const isMobile = useIsMobile()
   // ── Workspace snapshot (fetched on mount via /api/vaultmind/workspace) ────
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     graph: null,
@@ -140,6 +197,7 @@ export default function GraphynePage() {
   // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
   const [graphMotion, setGraphMotion] = useState(true)
+  const walkthroughSteps = isMobile ? MOBILE_WALKTHROUGH_STEPS : DESKTOP_WALKTHROUGH_STEPS
 
   useEffect(() => {
     try {
@@ -332,7 +390,6 @@ export default function GraphynePage() {
   const handleNodeClick = useCallback((nodeId: string) => {
     setHighlightedNodeId(nodeId)
     setCitationNodeId(nodeId)
-    setMobileGraphOpen(false)
 
     let targetEl: HTMLElement | null = null
     citationRefs.current.forEach(inner => {
@@ -357,6 +414,16 @@ export default function GraphynePage() {
     }
     setWalkthroughOpen(false)
   }, [])
+
+  const handleWalkthroughSurfaceChange = useCallback(
+    (surface: WalkthroughSurface) => {
+      if (!isMobile) return
+
+      setMobileSidebarOpen(surface === "sidebar")
+      setMobileGraphOpen(surface === "graph")
+    },
+    [isMobile],
+  )
 
   // Suppress unused-var lint until we wire animation toggling through.
   void graphMotion
@@ -383,6 +450,7 @@ export default function GraphynePage() {
         <SheetContent
           side="left"
           className="w-[280px] p-0 bg-sidebar border-border md:hidden"
+          data-tour="mobile-sidebar"
         >
           <Sidebar
             history={history}
@@ -443,6 +511,7 @@ export default function GraphynePage() {
         <SheetContent
           side="right"
           className="w-full sm:max-w-md p-0 bg-sidebar border-border lg:hidden"
+          data-tour="mobile-graph-panel"
         >
           <KnowledgeGraphPanel
             workspaceGraph={workspace.graph}
@@ -494,11 +563,13 @@ export default function GraphynePage() {
 
       <WalkthroughTour
         open={walkthroughOpen}
+        steps={walkthroughSteps}
         onOpenChange={open => {
           if (!open) closeWalkthrough()
           else setWalkthroughOpen(true)
         }}
         onDone={closeWalkthrough}
+        onSurfaceChange={handleWalkthroughSurfaceChange}
       />
     </main>
   )
@@ -506,21 +577,34 @@ export default function GraphynePage() {
 
 function WalkthroughTour({
   open,
+  steps,
   onOpenChange,
   onDone,
+  onSurfaceChange,
 }: {
   open: boolean
+  steps: WalkthroughStep[]
   onOpenChange: (open: boolean) => void
   onDone: () => void
+  onSurfaceChange: (surface: WalkthroughSurface) => void
 }) {
   const [stepIndex, setStepIndex] = useState(0)
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
 
-  const step = WALKTHROUGH_STEPS[stepIndex]
-  const isLast = stepIndex === WALKTHROUGH_STEPS.length - 1
+  const step = steps[stepIndex] ?? steps[0]
+  const isLast = stepIndex === steps.length - 1
 
   useEffect(() => {
-    if (!open) return
+    setStepIndex(0)
+  }, [steps])
+
+  useEffect(() => {
+    if (!open || !step) return
+    onSurfaceChange(step.surface ?? "main")
+  }, [onSurfaceChange, open, step])
+
+  useEffect(() => {
+    if (!open || !step) return
 
     const updateTarget = () => {
       const target = document.querySelector(step.target)
@@ -533,16 +617,17 @@ function WalkthroughTour({
       target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" })
     }
 
-    updateTarget()
+    const raf = window.requestAnimationFrame(updateTarget)
     window.addEventListener("resize", updateTarget)
     window.addEventListener("scroll", updateTarget, true)
     return () => {
+      window.cancelAnimationFrame(raf)
       window.removeEventListener("resize", updateTarget)
       window.removeEventListener("scroll", updateTarget, true)
     }
   }, [open, step.target])
 
-  if (!open) return null
+  if (!open || !step) return null
 
   const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth
   const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight
@@ -568,6 +653,7 @@ function WalkthroughTour({
 
   const placeLeft = step.placement === "left"
   const placeTop = step.placement === "top"
+  const placeBottom = step.placement === "bottom"
   const cardLeft = placeLeft
     ? Math.max(16, safeRect.left - cardWidth - 18)
     : Math.min(viewportWidth - cardWidth - 16, Math.max(16, safeRect.right + 18))
@@ -577,6 +663,8 @@ function WalkthroughTour({
   )
   const cardTop = placeTop
     ? Math.max(16, safeRect.top - 210)
+    : placeBottom
+    ? Math.min(viewportHeight - 180, Math.max(16, safeRect.bottom + 18))
     : Math.min(viewportHeight - 260, Math.max(16, safeRect.top + safeRect.height / 2 - 120))
 
   return (
@@ -633,6 +721,8 @@ function WalkthroughTour({
             "absolute h-3 w-3 rotate-45 border border-border bg-popover " +
             (placeTop
               ? "left-1/2 -bottom-1.5 -translate-x-1/2 border-l-0 border-t-0"
+              : placeBottom
+                ? "left-1/2 -top-1.5 -translate-x-1/2 border-b-0 border-r-0"
               : placeLeft
                 ? "-right-1.5 top-1/2 -translate-y-1/2 border-b-0 border-l-0"
                 : "-left-1.5 top-1/2 -translate-y-1/2 border-r-0 border-t-0")
@@ -641,7 +731,7 @@ function WalkthroughTour({
         />
         <div className="relative">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Step {stepIndex + 1} of {WALKTHROUGH_STEPS.length}
+            Step {stepIndex + 1} of {steps.length}
           </div>
           <h2 id="walkthrough-title" className="text-base font-semibold tracking-tight">
             {step.title}
@@ -653,7 +743,7 @@ function WalkthroughTour({
               Skip
             </Button>
             <div className="flex items-center gap-1">
-              {WALKTHROUGH_STEPS.map((item, index) => (
+              {steps.map((item, index) => (
                 <span
                   key={item.target}
                   className={
