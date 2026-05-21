@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { NOTION_TOKEN_COOKIE } from "@/lib/notion-token"
+import { NOTION_TOKEN_COOKIE } from "@/lib/notion-constants"
 
 const LOGIN_PATH = "/login"
 

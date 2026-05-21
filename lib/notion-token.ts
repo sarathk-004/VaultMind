@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
+import { NOTION_OAUTH_STATE_COOKIE, NOTION_TOKEN_COOKIE } from "./notion-constants"
 
-export const NOTION_TOKEN_COOKIE = "vm_notion_token"
-export const NOTION_OAUTH_STATE_COOKIE = "vm_notion_oauth_state"
+export { NOTION_OAUTH_STATE_COOKIE, NOTION_TOKEN_COOKIE }
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30 // 30 days
 const STATE_COOKIE_MAX_AGE_SECONDS = 60 * 10 // 10 minutes
 
