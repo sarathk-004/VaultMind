@@ -116,9 +116,14 @@ Create a `.env.local` file in the root:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
-NOTION_API_KEY=your_notion_integration_token
-NOTION_WORKSPACE_ID=your_workspace_id
+NEXT_PUBLIC_APP_URL=https://graphyne-ai.vercel.app
+NOTION_OAUTH_CLIENT_ID=your_notion_oauth_client_id
+NOTION_OAUTH_CLIENT_SECRET=your_notion_oauth_client_secret
+NOTION_OAUTH_REDIRECT_URI=https://graphyne-ai.vercel.app/api/vaultmind/connect/callback
 ```
+
+For local development, add `http://localhost:3000/api/vaultmind/connect/callback` to the
+same Notion public connection and use that as `NOTION_OAUTH_REDIRECT_URI`.
 
 ## Run locally
 

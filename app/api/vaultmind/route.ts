@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       "query=",
       message.slice(0, 60),
       "tokenSource=",
-      token ? "user-cookie" : process.env.NOTION_API_KEY ? "env" : "none",
+      token ? "oauth-cookie" : process.env.NOTION_API_KEY ? "env" : "none",
       "llmProvider=",
       llmSettings.provider,
       "llmKeySource=",

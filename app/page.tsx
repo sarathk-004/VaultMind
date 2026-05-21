@@ -329,7 +329,7 @@ export default function GraphynePage() {
         id: makeId("a"),
         role: "assistant",
         content:
-          "I couldn't reach your workspace just now. Make sure your `NOTION_API_KEY` is set and the integration has been shared with the pages you want to query.",
+          "I couldn't reach your workspace just now. Reconnect Notion and make sure Graphyne has access to the pages you want to query.",
         createdAt: Date.now(),
       }
       setHistory(prev =>
@@ -554,7 +554,7 @@ export default function GraphynePage() {
         onLlmSettingsChange={() => void reloadWorkspace()}
       />
 
-      {/* Connect dialog — bring-your-own Notion token */}
+      {/* Connect dialog - Notion OAuth */}
       <ConnectDialog
         open={connectOpen}
         onOpenChange={setConnectOpen}

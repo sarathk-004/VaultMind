@@ -1,70 +1,45 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
-import { notionFetch } from "@/lib/notion-client"
 import {
+  NOTION_OAUTH_STATE_COOKIE,
   NOTION_TOKEN_COOKIE,
+  getRequestNotionOAuthCookie,
+  notionOAuthStateCookieOptions,
   notionTokenCookieOptions,
 } from "@/lib/notion-token"
 import { clearTokenCaches } from "@/lib/notion-retriever"
 
-interface NotionSearchProbe {
-  results: { id: string }[]
+function getBaseUrl(req: NextRequest) {
+  return process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin
 }
 
 export async function POST(req: NextRequest) {
-  let body: { token?: string }
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 })
-  }
-
-  const token = (body.token ?? "").trim()
-  if (!token) {
-    return NextResponse.json({ ok: false, error: "Token is required" }, { status: 400 })
-  }
-  if (!/^(secret_|ntn_)/.test(token)) {
+  const clientId = process.env.NOTION_OAUTH_CLIENT_ID
+  if (!clientId) {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          "That doesn't look like a Notion Internal Integration Secret. It should start with 'secret_' or 'ntn_'.",
+        error: "Notion OAuth is not configured. Set NOTION_OAUTH_CLIENT_ID in Vercel.",
       },
-      { status: 400 },
+      { status: 500 },
     )
   }
 
-  // Probe the token by hitting /search — verifies auth before saving cookie.
-  try {
-    const probe = await notionFetch<NotionSearchProbe>(
-      "/search",
-      { method: "POST", body: { page_size: 1 } },
-      token,
-    )
-    const pagesFound = probe.results.length
+  const redirectUri =
+    process.env.NOTION_OAUTH_REDIRECT_URI || `${getBaseUrl(req)}/api/vaultmind/connect/callback`
+  const state = crypto.randomUUID()
 
-    const store = await cookies()
-    store.set(NOTION_TOKEN_COOKIE, token, notionTokenCookieOptions())
-    clearTokenCaches(token)
+  const authorizeUrl = new URL("https://api.notion.com/v1/oauth/authorize")
+  authorizeUrl.searchParams.set("client_id", clientId)
+  authorizeUrl.searchParams.set("response_type", "code")
+  authorizeUrl.searchParams.set("owner", "user")
+  authorizeUrl.searchParams.set("redirect_uri", redirectUri)
+  authorizeUrl.searchParams.set("state", state)
 
-    return NextResponse.json({
-      ok: true,
-      pagesFound,
-      message:
-        pagesFound > 0
-          ? `Connected. ${pagesFound}+ page(s) accessible.`
-          : "Token is valid, but no pages have been shared with this integration yet.",
-    })
-  } catch (err) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Notion rejected the token.",
-        details: err instanceof Error ? err.message : String(err),
-      },
-      { status: 401 },
-    )
-  }
+  const store = await cookies()
+  store.set(NOTION_OAUTH_STATE_COOKIE, state, notionOAuthStateCookieOptions())
+
+  return NextResponse.json({ ok: true, authorizeUrl: authorizeUrl.toString() })
 }
 
 export async function DELETE() {
@@ -72,14 +47,17 @@ export async function DELETE() {
   const existing = store.get(NOTION_TOKEN_COOKIE)?.value
   if (existing) clearTokenCaches(existing)
   store.set(NOTION_TOKEN_COOKIE, "", { ...notionTokenCookieOptions(), maxAge: 0 })
+  store.set(NOTION_OAUTH_STATE_COOKIE, "", { ...notionOAuthStateCookieOptions(), maxAge: 0 })
   return NextResponse.json({ ok: true })
 }
 
 export async function GET() {
   const store = await cookies()
   const token = store.get(NOTION_TOKEN_COOKIE)?.value
+  const oauthCookie = await getRequestNotionOAuthCookie()
   return NextResponse.json({
     connected: Boolean(token),
-    source: token ? "user-token" : process.env.NOTION_API_KEY ? "env" : "none",
+    source: token ? "oauth" : process.env.NOTION_API_KEY ? "env" : "none",
+    workspaceName: oauthCookie?.workspaceName,
   })
 }

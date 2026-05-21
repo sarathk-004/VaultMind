@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import { isNotionConnected, notionFetch } from "@/lib/notion-client"
 import type { NotionSearchResponse } from "@/lib/notion-client"
-import { getRequestNotionToken } from "@/lib/notion-token"
+import { getRequestNotionOAuthCookie, getRequestNotionToken } from "@/lib/notion-token"
 
 export async function GET() {
   const userToken = await getRequestNotionToken()
+  const oauthCookie = await getRequestNotionOAuthCookie()
   const effectiveToken = userToken ?? process.env.NOTION_API_KEY ?? null
   const hasKey = isNotionConnected(userToken)
-  const tokenSource = userToken ? "user" : process.env.NOTION_API_KEY ? "env" : "none"
+  const tokenSource = userToken ? "oauth" : process.env.NOTION_API_KEY ? "env" : "none"
   const keyPreview = effectiveToken
     ? `${effectiveToken.slice(0, 10)}...${effectiveToken.slice(-4)}`
     : "NOT SET"
@@ -18,8 +19,8 @@ export async function GET() {
       hasKey: false,
       tokenSource,
       keyPreview: "NOT SET",
-      error: "No Notion token configured",
-      help: "Click 'Connect Notion' and paste your Internal Integration Secret (starts with 'secret_' or 'ntn_').",
+      error: "No Notion connection",
+      help: "Click 'Connect Notion' to authorize Graphyne from your Notion workspace.",
     })
   }
 
@@ -36,9 +37,10 @@ export async function GET() {
         hasKey: true,
         tokenSource,
         keyPreview,
+        workspaceName: oauthCookie?.workspaceName,
         error: "Connected to Notion, but no pages found",
         help:
-          "Open the page in Notion → click 'Share' (or '...' → Connections) → add your integration. Repeat for each page or parent page you want Graphyne to query.",
+          "Reconnect and select pages for Graphyne to access, or share more parent pages with the Graphyne connection in Notion.",
       })
     }
     return NextResponse.json({
@@ -46,6 +48,7 @@ export async function GET() {
       hasKey: true,
       tokenSource,
       keyPreview,
+      workspaceName: oauthCookie?.workspaceName,
       pagesFound: pageCount,
       message: `Connected. ${pageCount}+ accessible page(s).`,
     })
@@ -55,10 +58,10 @@ export async function GET() {
       hasKey: true,
       tokenSource,
       keyPreview,
+      workspaceName: oauthCookie?.workspaceName,
       error: "Notion rejected the token",
       details: error instanceof Error ? error.message : String(error),
-      help:
-        "Verify the token is an Internal Integration Secret (starts with 'secret_' or 'ntn_'), not an OAuth token.",
+      help: "Disconnect and connect Notion again. If this persists, check your Notion OAuth app settings.",
     })
   }
 }
