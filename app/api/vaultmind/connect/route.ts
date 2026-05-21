@@ -9,8 +9,22 @@ import {
 } from "@/lib/notion-token"
 import { clearTokenCaches } from "@/lib/notion-retriever"
 
+function normalizeUrl(value: string) {
+  const raw = value.trim()
+  const withScheme = raw.startsWith("http://") || raw.startsWith("https://") ? raw : `https://${raw}`
+  return new URL(withScheme)
+}
+
 function getBaseUrl(req: NextRequest) {
-  return process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL
+  if (envUrl) return normalizeUrl(envUrl).origin
+  return new URL(req.url).origin
+}
+
+function getRedirectUri(req: NextRequest) {
+  const envRedirect = process.env.NOTION_OAUTH_REDIRECT_URI
+  if (envRedirect) return normalizeUrl(envRedirect).toString()
+  return `${getBaseUrl(req)}/api/vaultmind/connect/callback`
 }
 
 export async function POST(req: NextRequest) {
@@ -25,8 +39,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const redirectUri =
-    process.env.NOTION_OAUTH_REDIRECT_URI || `${getBaseUrl(req)}/api/vaultmind/connect/callback`
+  const redirectUri = getRedirectUri(req)
   const state = crypto.randomUUID()
 
   const authorizeUrl = new URL("https://api.notion.com/v1/oauth/authorize")
