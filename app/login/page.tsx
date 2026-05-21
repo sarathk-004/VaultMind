@@ -1,17 +1,11 @@
-import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
 import { BrandMark } from "@/components/brand/brand-mark"
 import { LoginPanel } from "@/components/vaultmind/login-panel"
-import { NOTION_TOKEN_COOKIE } from "@/lib/notion-token"
 
 interface LoginPageProps {
   searchParams?: Record<string, string | string[] | undefined>
 }
 
 export default function LoginPage({ searchParams }: LoginPageProps) {
-  const token = cookies().get(NOTION_TOKEN_COOKIE)?.value
-  if (token && token.length > 8) redirect("/")
-
   const notion = typeof searchParams?.notion === "string" ? searchParams.notion : undefined
   const reason = typeof searchParams?.reason === "string" ? searchParams.reason : undefined
 

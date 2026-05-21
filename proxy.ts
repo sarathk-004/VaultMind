@@ -8,13 +8,21 @@ function hasNotionToken(req: NextRequest): boolean {
   return Boolean(value && value.length > 8)
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (process.env.NODE_ENV !== "production") return NextResponse.next()
 
   const { pathname, search } = req.nextUrl
-  if (pathname.startsWith(LOGIN_PATH)) return NextResponse.next()
+  const connected = hasNotionToken(req)
 
-  if (hasNotionToken(req)) return NextResponse.next()
+  if (pathname.startsWith(LOGIN_PATH)) {
+    if (!connected) return NextResponse.next()
+    const url = req.nextUrl.clone()
+    url.pathname = "/"
+    url.search = search
+    return NextResponse.redirect(url)
+  }
+
+  if (connected) return NextResponse.next()
 
   const url = req.nextUrl.clone()
   url.pathname = LOGIN_PATH
