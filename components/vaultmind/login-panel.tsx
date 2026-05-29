@@ -1,7 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { AlertCircle, ExternalLink, Loader2 } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
+import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
 
 const ERROR_COPY: Record<string, string> = {
@@ -16,9 +17,10 @@ const ERROR_COPY: Record<string, string> = {
 interface LoginPanelProps {
   notion?: string
   reason?: string
+  onBack?: () => void
 }
 
-export function LoginPanel({ notion, reason }: LoginPanelProps) {
+export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -50,38 +52,52 @@ export function LoginPanel({ notion, reason }: LoginPanelProps) {
   const activeError = submitError ?? queryError
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-card/90 p-6 shadow-[0_25px_70px_rgba(0,0,0,0.18)] backdrop-blur">
-      <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Notion OAuth</p>
-        <h2 className="text-2xl font-semibold tracking-tight">Continue with Notion</h2>
-        <p className="text-sm text-muted-foreground">
-          Connect once and Graphyne reads only the pages you approve. No manual tokens or API keys
-          required.
-        </p>
-      </div>
-
-      <div className="mt-6 space-y-3">
+    <section className="relative flex min-h-[100dvh] items-center justify-center bg-[#191919] px-6 py-12 md:min-h-screen">
+      {onBack && (
         <Button
           type="button"
-          size="lg"
+          variant="ghost"
+          className="login-carousel-control absolute w-[30%] sm:w-[30%] md:w-[50%] lg:w-[400px] bottom-10 h-[64px] rounded-none border border-[#EAEAEA] bg-[#d5d5d5] text-[21px] font-bold tracking-[-0.03em] text-[#3F3A3A] hover:bg-[#F0F0F0] hover:text-[#3F3A3A] active:bg-[#DDDDDD]"
+          onClick={onBack}
+        >
+          Back
+        </Button>
+      )}
+
+      <div className="flex w-full max-w-[520px] flex-col items-center">
+        <BrandMark className="h-[92px] w-[92px]" alt="Graphyne" />
+        <h2 className="mt-9 text-center text-[28px] font-bold leading-none tracking-[-0.03em] text-[#FAFAFA]">
+          Welcome to graphyne!
+        </h2>
+
+        <Button
+          type="button"
           onClick={handleConnect}
           disabled={submitting}
-          className="w-full justify-center gap-2"
+          className="mt-10 h-[68px] w-[min(100%,500px)] rounded-none border border-[#EAEAEA] bg-[#F7F7F7] text-[21px] font-bold tracking-[-0.03em] text-[#3B3B3B] transition-[background-color,box-shadow,border-color] duration-200 ease-out hover:border-white hover:bg-white hover:shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_14px_30px_rgba(0,0,0,0.18)] active:bg-[#F2F2F2]"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink />}
-          {submitting ? "Opening Notion..." : "Sign in with Notion"}
+          {submitting ? <Loader2 className="mr-3 h-6 w-6 animate-spin" /> : <NotionIcon />}
+          {submitting ? "Opening Notion..." : "Sign In with Notion"}
         </Button>
-        <p className="text-[11px] text-muted-foreground">
-          You will choose the workspace and pages during the Notion permission step.
-        </p>
-      </div>
 
-      {activeError && (
-        <div className="mt-5 flex gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{activeError}</span>
-        </div>
-      )}
-    </div>
+        {activeError && (
+          <div className="mt-5 flex w-full gap-2 border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-100">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{activeError}</span>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function NotionIcon() {
+  return (
+    <img
+      src="/brand-assets/notion-logo.svg"
+      alt=""
+      className="mr-3 h-8 w-8"
+      aria-hidden
+    />
   )
 }

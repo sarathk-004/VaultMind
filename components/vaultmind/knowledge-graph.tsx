@@ -743,7 +743,8 @@ function GraphCanvas({
         <span className="font-medium text-foreground/80">{totalNodes} nodes</span>
         <span className="h-1 w-1 rounded-full bg-muted-foreground/50" aria-hidden />
         <span className="font-medium text-foreground/80">{totalEdges} links</span>
-        <span className="ml-auto text-[10px] text-muted-foreground/70">
+        <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-muted-foreground/70">
+          <ZoomIn className="h-3 w-3" aria-hidden />
           {Math.round(transform.k * 100)}%
         </span>
       </footer>

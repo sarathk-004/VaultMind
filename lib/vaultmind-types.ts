@@ -54,4 +54,5 @@ export interface NoteContent {
   content: string
   type: NodeType
   relatedNodes: string[]
+  url?: string
 }

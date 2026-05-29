@@ -1,12 +1,12 @@
 "use client"
 
 import { Menu, Network, Trash2 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
 import { ChatInput } from "./chat-input"
 import { ChatMessageBubble } from "./chat-message"
-import type { ChatMessage, Intent } from "@/lib/vaultmind-types"
+import type { ChatMessage, Intent, KnowledgeGraph } from "@/lib/vaultmind-types"
 import { cn } from "@/lib/utils"
 
 interface ChatPanelProps {
@@ -27,6 +27,7 @@ interface ChatPanelProps {
   registerCitationRef: (messageId: string, nodeId: string, el: HTMLElement | null) => void
   onOpenMobileSidebar: () => void
   onOpenMobileGraph: () => void
+  workspaceGraph: KnowledgeGraph | null
 }
 
 export function ChatPanel(props: ChatPanelProps) {
@@ -48,6 +49,7 @@ export function ChatPanel(props: ChatPanelProps) {
     registerCitationRef,
     onOpenMobileSidebar,
     onOpenMobileGraph,
+    workspaceGraph,
   } = props
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -144,7 +146,7 @@ export function ChatPanel(props: ChatPanelProps) {
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-3 sm:px-5 py-6 flex flex-col gap-6">
-          {messages.length === 0 && !loading && <EmptyChatState intent={intent} />}
+          {messages.length === 0 && !loading && <EmptyChatState intent={intent} workspaceGraph={workspaceGraph} />}
 
           {messages.map(msg => (
             <ChatMessageBubble
@@ -176,13 +178,15 @@ export function ChatPanel(props: ChatPanelProps) {
   )
 }
 
-function EmptyChatState({ intent }: { intent: Intent }) {
+function EmptyChatState({ intent, workspaceGraph }: { intent: Intent; workspaceGraph: KnowledgeGraph | null }) {
   const intentText: Record<Intent, string> = {
     search: "Search across pages, databases, and notes.",
     summarize: "Get instant summaries of any topic in your vault.",
     connect: "Discover hidden relationships between ideas.",
     brief: "Get a daily brief of what matters now.",
   }
+
+  const prompts = useMemo(() => buildStarterPrompts(workspaceGraph), [workspaceGraph])
 
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 sm:py-16">
@@ -191,13 +195,14 @@ function EmptyChatState({ intent }: { intent: Intent }) {
       <p className="text-sm text-muted-foreground mt-1.5 max-w-md text-balance px-4">
         {intentText[intent]} Graphyne queries your Notion vault via MCP and visualizes connections live.
       </p>
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full px-4">
-        {SAMPLE_PROMPTS.map(p => (
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2 max-w-md w-full px-4 text-left">
+        {prompts.map(p => (
           <div
             key={p}
-            className="text-xs text-muted-foreground border border-border rounded-md px-3 py-2 bg-card"
+            className="flex gap-2 text-xs leading-relaxed text-muted-foreground"
           >
-            {p}
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/45" aria-hidden />
+            <span>{p}</span>
           </div>
         ))}
       </div>
@@ -211,6 +216,24 @@ const SAMPLE_PROMPTS = [
   "What's blocking the 2.4 release?",
   "Brief me on this week's priorities",
 ]
+
+function buildStarterPrompts(workspaceGraph: KnowledgeGraph | null): string[] {
+  const nodes = workspaceGraph?.nodes ?? []
+  if (nodes.length < 2) return SAMPLE_PROMPTS
+
+  const labels = nodes
+    .map(node => node.label.trim())
+    .filter(Boolean)
+    .slice(0, 6)
+
+  const [first, second, third, fourth] = labels
+  return [
+    first ? `Summarize ${first}` : SAMPLE_PROMPTS[0],
+    first && second ? `Connect ${first} to ${second}` : SAMPLE_PROMPTS[1],
+    third ? `What needs attention in ${third}?` : SAMPLE_PROMPTS[2],
+    fourth ? `Brief me on ${fourth}` : SAMPLE_PROMPTS[3],
+  ]
+}
 
 function TypingIndicator({ status }: { status: string }) {
   return (

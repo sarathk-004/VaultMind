@@ -738,6 +738,7 @@ export async function fetchPageContent(
         type: meta.type,
         content: md || "_(Empty database)_",
         relatedNodes: [],
+        url: meta.url,
       }
       cache.set(cleanId, { content, fetchedAt: now })
       return content
@@ -759,6 +760,7 @@ export async function fetchPageContent(
       type: meta.type,
       content: (extracted.markdown + extraSections).trim() || "_(No content yet)_",
       relatedNodes: extracted.mentionedIds.map(id => id.replace(/-/g, "")),
+      url: meta.url,
     }
     cache.set(cleanId, { content, fetchedAt: now })
     return content

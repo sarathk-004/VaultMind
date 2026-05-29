@@ -35,8 +35,6 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void
   showFullGraph: boolean
   onShowFullGraphChange: (v: boolean) => void
-  graphMotion: boolean
-  onGraphMotionChange: (v: boolean) => void
   workspaceLabel?: string
   workspaceConnected?: boolean
   onLlmSettingsChange?: () => void
@@ -121,8 +119,6 @@ export function SettingsDialog({
   onOpenChange,
   showFullGraph,
   onShowFullGraphChange,
-  graphMotion,
-  onGraphMotionChange,
   workspaceLabel,
   workspaceConnected,
   onLlmSettingsChange,
@@ -359,7 +355,7 @@ export function SettingsDialog({
               <div>
                 <div>Graph display</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  Full graph {showFullGraph ? "on" : "off"} - motion {graphMotion ? "on" : "off"}
+                  Full graph {showFullGraph ? "on" : "off"}
                 </p>
               </div>
             </AccordionTrigger>
@@ -372,17 +368,6 @@ export function SettingsDialog({
                   checked={showFullGraph}
                   onCheckedChange={onShowFullGraphChange}
                   aria-label="Show full workspace graph"
-                />
-              </Row>
-
-              <Row
-                label="Animate graph layout"
-                hint="Smoothly tween nodes when the graph changes."
-              >
-                <Switch
-                  checked={graphMotion}
-                  onCheckedChange={onGraphMotionChange}
-                  aria-label="Animate graph layout"
                 />
               </Row>
             </AccordionContent>

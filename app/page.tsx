@@ -196,7 +196,6 @@ export default function GraphynePage() {
 
   // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
-  const [graphMotion, setGraphMotion] = useState(true)
   const walkthroughSteps = isMobile ? MOBILE_WALKTHROUGH_STEPS : DESKTOP_WALKTHROUGH_STEPS
 
   useEffect(() => {
@@ -425,9 +424,6 @@ export default function GraphynePage() {
     [isMobile],
   )
 
-  // Suppress unused-var lint until we wire animation toggling through.
-  void graphMotion
-
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <main className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
@@ -491,6 +487,7 @@ export default function GraphynePage() {
           registerCitationRef={registerCitationRef}
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
           onOpenMobileGraph={() => setMobileGraphOpen(true)}
+          workspaceGraph={workspace.graph}
         />
       </div>
 
@@ -547,8 +544,6 @@ export default function GraphynePage() {
         onOpenChange={setSettingsOpen}
         showFullGraph={showFullGraph}
         onShowFullGraphChange={setShowFullGraph}
-        graphMotion={graphMotion}
-        onGraphMotionChange={setGraphMotion}
         workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
         workspaceConnected={workspace.connected}
         onLlmSettingsChange={() => void reloadWorkspace()}

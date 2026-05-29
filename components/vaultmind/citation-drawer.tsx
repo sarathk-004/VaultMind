@@ -5,7 +5,6 @@ import { useEffect, useState } from "react"
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
@@ -368,6 +367,8 @@ export function CitationDrawer({
   const related = (note?.relatedNodes ?? [])
     .map(id => ({ id, ...(nodeLookup.get(id) ?? { label: id }) }))
     .filter(r => r.label !== r.id || workspaceGraph === null)
+  const cleanNoteId = note?.id.replace(/-/g, "") ?? ""
+  const notionUrl = note?.url ?? (/^[0-9a-f]{32}$/i.test(cleanNoteId) ? `https://www.notion.so/${cleanNoteId}` : null)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -392,18 +393,10 @@ export function CitationDrawer({
               />
               {note?.type ?? "page"}
             </span>
-            {nodeId && (
-              <span className="text-[10px] text-muted-foreground font-mono truncate">
-                notion://{nodeId.slice(0, 16)}
-              </span>
-            )}
           </div>
           <SheetTitle className="text-lg font-semibold tracking-tight text-left">
             {note?.title ?? (loading ? "Loading…" : "Citation")}
           </SheetTitle>
-          <SheetDescription className="text-xs text-muted-foreground text-left">
-            Source content fetched from your connected Notion workspace.
-          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -472,10 +465,13 @@ export function CitationDrawer({
             size="sm"
             variant="ghost"
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
-            onClick={() => onOpenChange(false)}
+            disabled={!notionUrl}
+            onClick={() => {
+              if (notionUrl) window.open(notionUrl, "_blank", "noopener,noreferrer")
+            }}
           >
             <ExternalLink className="h-3 w-3" />
-            Close
+            Open in Notion
           </Button>
         </div>
       </SheetContent>
