@@ -52,8 +52,16 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
   const activeError = submitError ?? queryError
 
   return (
-    <section className="relative flex min-h-[100dvh] items-start justify-center overflow-hidden bg-[#191919] px-6 pt-10 pb-14 md:min-h-screen md:items-center md:py-12">
+    <section className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#191919] px-6 py-20 md:min-h-screen md:py-12">
       <div className="login-pixels" aria-hidden>
+        <svg className="login-pixel-links" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <path d="M6 8 L14 18 L9 30 L18 42 L10 56 L16 70 L8 84" />
+          <path d="M24 12 L30 6 L42 10 L58 8 L70 12 L86 10 L92 22" />
+          <path d="M92 22 L84 36 L90 50 L82 66 L88 78 L94 88" />
+          <path d="M28 90 L46 86 L62 92 L74 84 L88 78" />
+          <path d="M18 42 L42 10 L70 12 L84 36" />
+          <path d="M10 56 L46 86 L82 66" />
+        </svg>
         <span className="login-pixel" style={{ left: "6%", top: "8%", width: "10px", height: "10px", backgroundColor: "#CECBF6", animationDelay: "0.2s", opacity: 0.34 }} />
         <span className="login-pixel" style={{ left: "14%", top: "18%", width: "8px", height: "8px", backgroundColor: "#F4F4F4", animationDelay: "0.9s", opacity: 0.3 }} />
         <span className="login-pixel" style={{ left: "9%", top: "30%", width: "9px", height: "9px", backgroundColor: "#D9592A", animationDelay: "1.4s", opacity: 0.32 }} />
@@ -89,7 +97,7 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
         </Button>
       )}
 
-      <div className="relative z-10 flex w-full max-w-[520px] flex-col items-center md:pt-0">
+      <div className="relative z-10 flex w-full max-w-[520px] -translate-y-[5dvh] flex-col items-center md:translate-y-0 md:pt-0">
         <BrandMark className="h-[72px] w-[72px] sm:h-[84px] sm:w-[84px] md:h-[92px] md:w-[92px]" alt="Graphyne" />
         <h2 className="mt-6 text-center text-[24px] font-bold leading-none tracking-[-0.03em] text-[#FAFAFA] sm:mt-7 sm:text-[26px] md:mt-9 md:text-[28px]">
           Welcome to graphyne!

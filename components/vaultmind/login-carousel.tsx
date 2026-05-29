@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { LoginArrow } from "./login-arrow"
 
@@ -31,9 +31,17 @@ export function LoginCarousel() {
     setIndex(current => (current + direction + SLIDES.length) % SLIDES.length)
   }
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setIndex(current => (current + 1) % SLIDES.length)
+    }, 4800)
+
+    return () => window.clearInterval(timer)
+  }, [])
+
   return (
     <section
-      className="relative h-full min-h-[420px] overflow-hidden bg-[#645DBE] md:min-h-screen"
+      className="login-carousel-scene relative h-full min-h-[420px] overflow-hidden bg-[#645DBE] md:min-h-screen"
       aria-label="Graphyne login carousel"
     >
       <img
@@ -101,7 +109,7 @@ export function LoginIntroSlide({ className = "" }: { className?: string }) {
 
   return (
     <section
-      className={"relative h-full min-h-[100dvh] overflow-hidden bg-[#645DBE] " + className}
+      className={"login-carousel-scene relative h-full min-h-[100dvh] overflow-hidden bg-[#645DBE] " + className}
       aria-label="Graphyne intro"
     >
       <img

@@ -27,7 +27,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Loader2, Sun, Moon, Settings } from "lucide-react"
+import { Loader2, LogOut, Sun, Moon, Settings } from "lucide-react"
 import { useTheme } from "next-themes"
 
 interface SettingsDialogProps {
@@ -131,6 +131,8 @@ export function SettingsDialog({
   const [autoKeyProvider, setAutoKeyProvider] = useState<Exclude<LlmProvider, "auto" | "ollama">>("openai")
   const [apiKey, setApiKey] = useState("")
   const [saving, setSaving] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
 
   useEffect(() => {
@@ -205,6 +207,19 @@ export function SettingsDialog({
       setStatus(err instanceof Error ? err.message : "Failed to save settings.")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    setLoggingOut(true)
+    setLogoutError(null)
+    try {
+      const res = await fetch("/api/vaultmind/connect", { method: "DELETE" })
+      if (!res.ok) throw new Error(`Status ${res.status}`)
+      window.location.assign("/login")
+    } catch (err) {
+      setLogoutError(err instanceof Error ? err.message : "Failed to log out.")
+      setLoggingOut(false)
     }
   }
 
@@ -402,7 +417,8 @@ export function SettingsDialog({
               </div>
             </AccordionTrigger>
             <AccordionContent className="pb-3">
-              <Row label="Workspace" hint="Connected via MCP / Notion API.">
+              <div className="space-y-4">
+                <Row label="Workspace" hint="Connected via MCP / Notion API.">
                 <span className="text-xs text-foreground/80 flex items-center gap-1.5">
                   <span
                     className={
@@ -413,7 +429,29 @@ export function SettingsDialog({
                   />
                   {workspaceLabel ?? "Not connected"}
                 </span>
-              </Row>
+                </Row>
+
+                <Row
+                  label="Log out"
+                  hint="Clear this browser's Notion authorization and return to sign in."
+                >
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleLogout}
+                    disabled={loggingOut}
+                  >
+                    {loggingOut ? (
+                      <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                    ) : (
+                      <LogOut className="mr-1.5 h-3 w-3" aria-hidden />
+                    )}
+                    Log out
+                  </Button>
+                </Row>
+                {logoutError && <p className="text-[11px] text-destructive">{logoutError}</p>}
+              </div>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
