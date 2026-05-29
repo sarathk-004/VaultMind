@@ -347,15 +347,185 @@ function buildSummaryAnswer(
   title: string,
   content: string,
 ): string {
-  const items = summarizeLines(content)
-  if (items.length === 0) {
-    return `## Summary: ${title}\n\n_(No extractable summary yet.)_`
+  const paragraphs = splitContentIntoParagraphs(content)
+  const summaries = summarizeParagraphs(paragraphs, { maxParagraphs: 8 })
+
+  if (summaries.length === 0) {
+    const items = summarizeLines(content)
+    if (items.length === 0) {
+      return `## Summary: ${title}\n\n_(No extractable summary yet.)_`
+    }
+    return [
+      `## Summary: ${title}`,
+      "",
+      ...items.map(item => `- ${item}`),
+    ].join("\n")
   }
-  return [
+
+  const lines = [
     `## Summary: ${title}`,
     "",
-    ...items.map(item => `- ${item}`),
-  ].join("\n")
+    ...summaries.map(item => `- ${item}`),
+  ]
+
+  if (paragraphs.length > summaries.length) {
+    lines.push("", `_(Showing ${summaries.length} of ${paragraphs.length} sections.)_`)
+  }
+
+  return lines.join("\n")
+}
+
+function splitContentIntoParagraphs(content: string): string[] {
+  const lines = content.split("\n")
+  const paragraphs: string[] = []
+  let inCode = false
+  let inTable = false
+  let buffer: string[] = []
+
+  const flush = () => {
+    if (buffer.length === 0) return
+    const merged = buffer.join(" ").replace(/\s+/g, " ").trim()
+    if (merged) paragraphs.push(merged)
+    buffer = []
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith("```")) {
+      inCode = !inCode
+      flush()
+      continue
+    }
+    if (inCode) continue
+    if (!trimmed) {
+      flush()
+      inTable = false
+      continue
+    }
+    if (/^\|.*\|$/.test(trimmed)) {
+      inTable = true
+      flush()
+      continue
+    }
+    if (inTable) continue
+    if (trimmed.startsWith("#")) {
+      flush()
+      continue
+    }
+    if (/^[-*+]\s+/.test(trimmed) || /^\d+\./.test(trimmed)) {
+      flush()
+      continue
+    }
+    if (trimmed.startsWith("_") && trimmed.endsWith("_")) continue
+    buffer.push(trimmed)
+  }
+
+  flush()
+  return paragraphs
+}
+
+function summarizeParagraphs(
+  paragraphs: string[],
+  options: { maxParagraphs: number },
+): string[] {
+  if (paragraphs.length === 0) return []
+  const maxParagraphs = Math.max(1, options.maxParagraphs)
+  const selectedParagraphs = paragraphs.slice(0, maxParagraphs)
+
+  const sentenceGroups = selectedParagraphs.map(paragraph =>
+    paragraph
+      .split(/[.!?]\s+/)
+      .map(sentence => sentence.trim())
+      .filter(Boolean),
+  )
+
+  const allSentences = sentenceGroups.flat()
+  if (allSentences.length === 0) return []
+
+  const idf = buildIdf(allSentences)
+  const summaries: string[] = []
+
+  sentenceGroups.forEach(group => {
+    if (group.length === 0) return
+    if (group.length <= 2) {
+      summaries.push(group.join(" "))
+      return
+    }
+
+    const vectors = group.map(sentence => sentenceVector(sentence, idf))
+    const similarity = buildSimilarityMatrix(vectors)
+    const trScores = textRank(similarity, 0.85, 18)
+    const tfidfScores = vectors.map(vec => Array.from(vec.values()).reduce((sum, v) => sum + v, 0))
+
+    const maxTr = Math.max(...trScores, 1)
+    const maxTf = Math.max(...tfidfScores, 1)
+
+    const ranked = group.map((sentence, index) => {
+      const length = sentence.split(/\s+/).length
+      const lengthPenalty = length < 8 ? 0.75 : length > 40 ? 0.8 : 1
+      const positionBoost = 1 - index / Math.max(group.length - 1, 1) * 0.15
+      const score =
+        0.5 * (trScores[index] / maxTr) +
+        0.35 * (tfidfScores[index] / maxTf) +
+        0.15 * positionBoost
+      return { sentence, index, score: score * lengthPenalty }
+    })
+
+    const take = group.length > 4 ? 2 : 1
+    const picked = ranked
+      .sort((a, b) => b.score - a.score)
+      .slice(0, take)
+      .sort((a, b) => a.index - b.index)
+      .map(item => item.sentence)
+
+    summaries.push(picked.join(" "))
+  })
+
+  return summaries
+}
+
+function buildIdf(sentences: string[]): Map<string, number> {
+  const df = new Map<string, number>()
+  for (const sentence of sentences) {
+    const tokens = new Set(tokenizeSummary(sentence))
+    for (const token of tokens) {
+      df.set(token, (df.get(token) ?? 0) + 1)
+    }
+  }
+  const total = sentences.length
+  const idf = new Map<string, number>()
+  for (const [token, count] of df) {
+    idf.set(token, Math.log((total + 1) / (count + 1)) + 1)
+  }
+  return idf
+}
+
+function sentenceVector(sentence: string, idf: Map<string, number>): Map<string, number> {
+  const tokens = tokenizeSummary(sentence)
+  const counts = new Map<string, number>()
+  for (const token of tokens) {
+    counts.set(token, (counts.get(token) ?? 0) + 1)
+  }
+  const maxTf = Math.max(...Array.from(counts.values()), 1)
+  const vec = new Map<string, number>()
+  for (const [token, count] of counts) {
+    const tf = count / maxTf
+    vec.set(token, tf * (idf.get(token) ?? 1))
+  }
+  return vec
+}
+
+function buildSimilarityMatrix(vectors: Map<string, number>[]): number[][] {
+  const n = vectors.length
+  const matrix = Array.from({ length: n }, () => Array(n).fill(0))
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const score = cosineSim(vectors[i], vectors[j])
+      matrix[i][j] = score
+      matrix[j][i] = score
+    }
+  }
+  return matrix
 }
 
 export async function POST(req: NextRequest) {

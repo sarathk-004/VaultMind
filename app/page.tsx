@@ -89,30 +89,9 @@ const MOBILE_WALKTHROUGH_STEPS: WalkthroughStep[] = [
   {
     target: '[data-tour="mobile-graph-button"]',
     title: "Open the graph as a sheet",
-    body: "The knowledge graph is separate from chat on smaller screens so the answer stays readable.",
+    body: "Tap here any time to open the knowledge graph without leaving the chat.",
     placement: "bottom",
     surface: "main",
-  },
-  {
-    target: '[data-tour="mobile-graph-panel"]',
-    title: "Explore with touch",
-    body: "Drag the canvas to pan, drag nodes to rearrange them, pinch or use the zoom buttons, and tap a node to select it.",
-    placement: "left",
-    surface: "graph",
-  },
-  {
-    target: '[data-tour="graph-locate"]',
-    title: "Recentre the mobile graph",
-    body: "Use locate after panning around to jump back to the active answer or the densest cluster.",
-    placement: "bottom",
-    surface: "graph",
-  },
-  {
-    target: '[data-tour="mobile-sidebar"]',
-    title: "Settings stay in the mobile menu",
-    body: "Open the menu when you want theme, model, workspace, or graph display controls.",
-    placement: "right",
-    surface: "sidebar",
   },
 ]
 
@@ -430,8 +409,8 @@ export default function GraphynePage() {
     (surface: WalkthroughSurface) => {
       if (!isMobile) return
 
-      setMobileSidebarOpen(surface === "sidebar")
-      setMobileGraphOpen(surface === "graph")
+      setMobileSidebarOpen(false)
+      setMobileGraphOpen(false)
     },
     [isMobile],
   )
