@@ -113,7 +113,7 @@ export function ChatInput({
                     "flex items-center gap-1.5 h-7 px-2 rounded-sm text-xs font-medium transition-colors",
                     active
                       ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden />

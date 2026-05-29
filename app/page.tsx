@@ -370,6 +370,18 @@ export default function GraphynePage() {
     citationRefs.current.clear()
   }, [])
 
+  const handleDeleteChat = useCallback((id: string) => {
+    setHistory(prev => prev.filter(chat => chat.id !== id))
+    if (activeChatId === id) {
+      setActiveChatId(null)
+      setDraftMessages([])
+      setDraftTitle("New conversation")
+      setHighlightedNodeId(null)
+      setCitationNodeId(null)
+      citationRefs.current.clear()
+    }
+  }, [activeChatId])
+
   const handleSelectChat = useCallback((id: string) => {
     setActiveChatId(id)
     setHighlightedNodeId(null)
@@ -433,6 +445,7 @@ export default function GraphynePage() {
           history={history}
           activeChatId={activeChatId}
           onSelectChat={handleSelectChat}
+          onDeleteChat={handleDeleteChat}
           onNewChat={handleNewChat}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenConnect={() => setConnectOpen(true)}
@@ -452,6 +465,7 @@ export default function GraphynePage() {
             history={history}
             activeChatId={activeChatId}
             onSelectChat={handleSelectChat}
+            onDeleteChat={handleDeleteChat}
             onNewChat={handleNewChat}
             onOpenSettings={() => {
               setSettingsOpen(true)
