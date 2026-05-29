@@ -193,32 +193,20 @@
 @keyframes login-tile-reveal {
   0% {
     opacity: 0;
-    filter: saturate(1.45) contrast(1.28);
-    transform: translate3d(-8px, 6px, 0) scale(1.035);
+    transform: scale(1.012);
   }
-  14% {
-    opacity: 0.92;
-    transform: translate3d(7px, -5px, 0) scale(1.03);
-  }
-  25% {
-    opacity: 0.18;
-    transform: translate3d(-4px, 3px, 0) scale(1.02);
-  }
-  42% {
-    opacity: 0.94;
-    filter: saturate(1.25) contrast(1.16);
-  }
-  58% {
-    opacity: 0.36;
-  }
-  76% {
-    opacity: 1;
+  55% {
+    opacity: 0.72;
   }
   100% {
     opacity: 1;
-    filter: saturate(1) contrast(1);
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: scale(1);
   }
+}
+
+@keyframes login-image-soft-reveal {
+  from { opacity: 0; }
+  to { opacity: 0.76; }
 }
 
 @keyframes login-pixel-flicker {
@@ -299,11 +287,23 @@
   background-repeat: no-repeat;
   background-size: contain;
   opacity: 0;
-  will-change: opacity, transform, filter;
-  animation: login-tile-reveal 760ms steps(2, end) forwards;
+  will-change: opacity, transform;
+  animation: login-tile-reveal 520ms ease-out forwards;
+}
+
+.login-carousel-image-soft {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  opacity: 0;
+  animation: login-image-soft-reveal 1600ms ease-out forwards;
 }
 
 @media (min-width: 768px) {
+  .login-carousel-image-soft,
   .login-carousel-tile {
     background-size: cover;
   }
@@ -330,6 +330,7 @@
 @media (prefers-reduced-motion: reduce) {
   .login-carousel-art,
   .login-carousel-layer,
+  .login-carousel-image-soft,
   .login-carousel-tile,
   .login-pixel-links path,
   .login-carousel-title,

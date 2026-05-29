@@ -23,8 +23,8 @@ const SLIDES = [
   },
 ]
 
-const TILE_COLUMNS = 10
-const TILE_ROWS = 7
+const TILE_COLUMNS = 16
+const TILE_ROWS = 10
 const TILE_COUNT = TILE_COLUMNS * TILE_ROWS
 
 export function LoginCarousel() {
@@ -63,6 +63,10 @@ export function LoginCarousel() {
         draggable={false}
       />
       <div key={slide.image} className="absolute inset-0" aria-hidden>
+        <span
+          className="login-carousel-image-soft"
+          style={{ backgroundImage: `url(${slide.image})` }}
+        />
         {Array.from({ length: TILE_COUNT }, (_, tileIndex) => {
           const column = tileIndex % TILE_COLUMNS
           const row = Math.floor(tileIndex / TILE_COLUMNS)
@@ -79,7 +83,7 @@ export function LoginCarousel() {
               style={{
                 backgroundImage: `url(${slide.image})`,
                 clipPath: `inset(${top}% ${right}% ${bottom}% ${left}%)`,
-                animationDelay: `${revealOrder * 28}ms`,
+                animationDelay: `${revealOrder * 18}ms`,
               }}
             />
           )
