@@ -451,6 +451,7 @@ export default function GraphynePage() {
   const handleNodeClick = useCallback((nodeId: string) => {
     setHighlightedNodeId(nodeId)
     setCitationNodeId(nodeId)
+    setMobileGraphOpen(false)
 
     let targetEl: HTMLElement | null = null
     citationRefs.current.forEach(inner => {
