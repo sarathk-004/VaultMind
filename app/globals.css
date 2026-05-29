@@ -176,13 +176,8 @@
 .vm-dot:nth-child(3) { animation-delay: 0.3s; }
 
 @keyframes login-art-enter {
-  from { opacity: 0.88; transform: scale(1.006); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes login-carousel-bg {
-  0%, 100% { background-position: 0% 50%, 100% 0%, 50% 100%; }
-  50% { background-position: 100% 50%, 0% 18%, 36% 0%; }
+  from { opacity: 0.88; }
+  to { opacity: 1; }
 }
 
 @keyframes login-art-drift {
@@ -193,6 +188,34 @@
 @keyframes login-title-enter {
   from { opacity: 0; transform: translateY(14px); filter: blur(3px); }
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes login-slice-reveal {
+  0% {
+    opacity: 0;
+    filter: saturate(1.35) contrast(1.2);
+    transform: translate3d(-18px, 0, 0) scale(1.025);
+    background-position: 47% 50%;
+  }
+  28% {
+    opacity: 0.82;
+    filter: saturate(1.45) contrast(1.28);
+    transform: translate3d(10px, 0, 0) scale(1.02);
+  }
+  46% {
+    opacity: 0.38;
+    transform: translate3d(-5px, 0, 0) scale(1.015);
+  }
+  68% {
+    opacity: 0.94;
+    filter: saturate(1.12) contrast(1.08);
+  }
+  100% {
+    opacity: 1;
+    filter: saturate(1) contrast(1);
+    transform: translate3d(0, 0, 0) scale(1);
+    background-position: 50% 50%;
+  }
 }
 
 @keyframes login-pixel-flicker {
@@ -209,12 +232,7 @@
 }
 
 .login-carousel-scene {
-  background-image:
-    radial-gradient(circle at 22% 22%, rgba(206, 203, 246, 0.38), transparent 30%),
-    radial-gradient(circle at 78% 16%, rgba(217, 89, 42, 0.22), transparent 28%),
-    linear-gradient(135deg, #554fb3 0%, #645dbe 42%, #746dd0 100%);
-  background-size: 140% 140%, 160% 160%, 100% 100%;
-  animation: login-carousel-bg 13s ease-in-out infinite;
+  background: #645DBE;
 }
 
 .login-pixels {
@@ -261,9 +279,31 @@
 }
 
 .login-carousel-art {
+  animation: login-art-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-carousel-layer {
   animation:
     login-art-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both,
-    login-art-drift 8.5s ease-in-out 560ms infinite;
+    login-art-drift 9.5s ease-in-out 560ms infinite;
+}
+
+.login-carousel-slice {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  opacity: 0;
+  will-change: opacity, transform, filter;
+  animation: login-slice-reveal 980ms steps(5, end) forwards;
+}
+
+@media (min-width: 768px) {
+  .login-carousel-slice {
+    background-size: cover;
+  }
 }
 
 .login-carousel-title {
@@ -286,7 +326,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .login-carousel-art,
-  .login-carousel-scene,
+  .login-carousel-layer,
+  .login-carousel-slice,
   .login-pixel-links path,
   .login-carousel-title,
   .login-carousel-control {

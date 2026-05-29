@@ -23,17 +23,27 @@ const SLIDES = [
   },
 ]
 
+const SLICE_COUNT = 14
+
 export function LoginCarousel() {
   const [index, setIndex] = useState(0)
+  const [previousIndex, setPreviousIndex] = useState(0)
   const slide = SLIDES[index]
+  const previousSlide = SLIDES[previousIndex]
 
   const go = (direction: -1 | 1) => {
-    setIndex(current => (current + direction + SLIDES.length) % SLIDES.length)
+    setIndex(current => {
+      setPreviousIndex(current)
+      return (current + direction + SLIDES.length) % SLIDES.length
+    })
   }
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setIndex(current => (current + 1) % SLIDES.length)
+      setIndex(current => {
+        setPreviousIndex(current)
+        return (current + 1) % SLIDES.length
+      })
     }, 4800)
 
     return () => window.clearInterval(timer)
@@ -45,12 +55,29 @@ export function LoginCarousel() {
       aria-label="Graphyne login carousel"
     >
       <img
-        key={slide.image}
-        src={slide.image}
+        src={previousSlide.image}
         alt=""
-        className="login-carousel-art absolute inset-0 h-full w-full object-contain md:object-cover"
+        className="login-carousel-art login-carousel-layer absolute inset-0 h-full w-full object-contain md:object-cover"
         draggable={false}
       />
+      <div key={slide.image} className="absolute inset-0" aria-hidden>
+        {Array.from({ length: SLICE_COUNT }, (_, sliceIndex) => {
+          const left = (sliceIndex / SLICE_COUNT) * 100
+          const right = 100 - ((sliceIndex + 1) / SLICE_COUNT) * 100
+
+          return (
+            <span
+              key={`${slide.image}-${sliceIndex}`}
+              className="login-carousel-slice"
+              style={{
+                backgroundImage: `url(${slide.image})`,
+                clipPath: `inset(0 ${right}% 0 ${left}%)`,
+                animationDelay: `${sliceIndex * 58}ms`,
+              }}
+            />
+          )
+        })}
+      </div>
 
       <div className="absolute inset-0 flex items-center justify-center px-10">
         <h1
@@ -115,7 +142,7 @@ export function LoginIntroSlide({ className = "" }: { className?: string }) {
       <img
         src={slide.image}
         alt=""
-        className="login-carousel-art absolute inset-0 h-full w-full object-contain md:object-cover"
+        className="login-carousel-art login-carousel-layer absolute inset-0 h-full w-full object-contain md:object-cover"
         draggable={false}
       />
       <div className="absolute inset-0 flex items-center justify-center px-10">
