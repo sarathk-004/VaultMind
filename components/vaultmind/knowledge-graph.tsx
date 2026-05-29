@@ -534,7 +534,7 @@ function GraphCanvas({
             <span className="text-xs text-muted-foreground ml-2 truncate">Loading workspace…</span>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 pr-8 lg:pr-0">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
             <ZoomIn className="h-3.5 w-3.5" />
           </Button>
