@@ -45,7 +45,7 @@ export function Sidebar({
         </div>
         <button
           onClick={onOpenConnect}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border hover:bg-accent/70 transition-colors"
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border hover:bg-accent/35 transition-colors"
         >
           <span
             className={cn(
@@ -75,7 +75,7 @@ export function Sidebar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
+            className="h-6 w-6 hover:bg-accent/40 hover:text-foreground"
             aria-label="New chat"
             onClick={onNewChat}
           >
@@ -100,7 +100,7 @@ export function Sidebar({
                         "w-full text-left px-2.5 py-2 rounded-md transition-colors",
                         active
                           ? "bg-accent text-accent-foreground dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
-                          : "hover:bg-accent/70 text-foreground/90",
+                          : "hover:bg-accent/40 text-foreground/90",
                       )}
                     >
                       <div className="flex items-center gap-2 mb-0.5 pr-6">
@@ -142,7 +142,7 @@ export function Sidebar({
           variant="outline"
           size="sm"
           onClick={onNewChat}
-          className="flex-1 h-8 text-xs justify-start gap-2 bg-transparent"
+          className="flex-1 h-8 text-xs justify-start gap-2 bg-transparent hover:bg-accent/35 hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
           New chat

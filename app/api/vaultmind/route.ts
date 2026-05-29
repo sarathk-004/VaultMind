@@ -471,7 +471,7 @@ function summarizeParagraphs(
       return { sentence, index, score: score * lengthPenalty }
     })
 
-    const take = group.length > 4 ? 2 : 1
+    const take = group.length >= 3 ? 2 : 1
     const picked = ranked
       .sort((a, b) => b.score - a.score)
       .slice(0, take)

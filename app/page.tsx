@@ -27,6 +27,43 @@ const LOADING_STATUSES = [
 
 const SEED_HISTORY: ChatHistoryItem[] = []
 const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
+const CHAT_STORAGE_KEY = "graphyne.chat.v1"
+
+type StoredChatState = {
+  history: ChatHistoryItem[]
+  activeChatId: string | null
+  draftMessages: ChatMessage[]
+  draftTitle: string
+}
+
+function stripGraph(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map(message => {
+    const { graph, ...rest } = message
+    return rest
+  })
+}
+
+function loadChatState(): StoredChatState | null {
+  if (typeof window === "undefined") return null
+  const raw = window.localStorage.getItem(CHAT_STORAGE_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredChatState>
+    if (!parsed || typeof parsed !== "object") return null
+    const history = Array.isArray(parsed.history) ? parsed.history : []
+    const draftMessages = Array.isArray(parsed.draftMessages) ? parsed.draftMessages : []
+    const activeChatId = typeof parsed.activeChatId === "string" ? parsed.activeChatId : null
+    const draftTitle = typeof parsed.draftTitle === "string" ? parsed.draftTitle : "New conversation"
+    return { history, activeChatId, draftMessages, draftTitle }
+  } catch {
+    return null
+  }
+}
+
+function saveChatState(state: StoredChatState) {
+  if (typeof window === "undefined") return
+  window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(state))
+}
 
 type WalkthroughSurface = "main" | "sidebar" | "graph"
 
@@ -139,8 +176,37 @@ export default function GraphynePage() {
   const [history, setHistory] = useState<ChatHistoryItem[]>(SEED_HISTORY)
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
 
+  const [hydrated, setHydrated] = useState(false)
+
   const [draftMessages, setDraftMessages] = useState<ChatMessage[]>([])
   const [draftTitle, setDraftTitle] = useState("New conversation")
+
+  useEffect(() => {
+    const stored = loadChatState()
+    if (!stored) {
+      setHydrated(true)
+      return
+    }
+    setHistory(stored.history)
+    setDraftMessages(stored.draftMessages)
+    setDraftTitle(stored.draftTitle || "New conversation")
+    const knownIds = new Set(stored.history.map(chat => chat.id))
+    setActiveChatId(stored.activeChatId && knownIds.has(stored.activeChatId) ? stored.activeChatId : null)
+    setHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated) return
+    saveChatState({
+      history: history.map(chat => ({
+        ...chat,
+        messages: stripGraph(chat.messages),
+      })),
+      activeChatId,
+      draftMessages: stripGraph(draftMessages),
+      draftTitle,
+    })
+  }, [hydrated, history, activeChatId, draftMessages, draftTitle])
 
   const activeChat = useMemo(
     () => (activeChatId ? history.find(h => h.id === activeChatId) ?? null : null),
