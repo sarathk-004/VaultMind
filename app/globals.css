@@ -162,7 +162,7 @@
   background-image:
     linear-gradient(to right, color-mix(in oklab, var(--border) 65%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in oklab, var(--border) 65%, transparent) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-size: 60px 60px;
 }
 
 @keyframes vm-bounce {

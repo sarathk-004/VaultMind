@@ -23,8 +23,8 @@ const SLIDES = [
   },
 ]
 
-const TILE_COLUMNS = 16
-const TILE_ROWS = 10
+const TILE_COLUMNS = 24
+const TILE_ROWS = 18
 const TILE_COUNT = TILE_COLUMNS * TILE_ROWS
 
 export function LoginCarousel() {
