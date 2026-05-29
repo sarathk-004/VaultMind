@@ -23,7 +23,9 @@ const SLIDES = [
   },
 ]
 
-const SLICE_COUNT = 14
+const TILE_COLUMNS = 10
+const TILE_ROWS = 7
+const TILE_COUNT = TILE_COLUMNS * TILE_ROWS
 
 export function LoginCarousel() {
   const [index, setIndex] = useState(0)
@@ -61,18 +63,23 @@ export function LoginCarousel() {
         draggable={false}
       />
       <div key={slide.image} className="absolute inset-0" aria-hidden>
-        {Array.from({ length: SLICE_COUNT }, (_, sliceIndex) => {
-          const left = (sliceIndex / SLICE_COUNT) * 100
-          const right = 100 - ((sliceIndex + 1) / SLICE_COUNT) * 100
+        {Array.from({ length: TILE_COUNT }, (_, tileIndex) => {
+          const column = tileIndex % TILE_COLUMNS
+          const row = Math.floor(tileIndex / TILE_COLUMNS)
+          const left = (column / TILE_COLUMNS) * 100
+          const right = 100 - ((column + 1) / TILE_COLUMNS) * 100
+          const top = (row / TILE_ROWS) * 100
+          const bottom = 100 - ((row + 1) / TILE_ROWS) * 100
+          const revealOrder = (tileIndex * 37 + row * 11 + column * 19) % TILE_COUNT
 
           return (
             <span
-              key={`${slide.image}-${sliceIndex}`}
-              className="login-carousel-slice"
+              key={`${slide.image}-${tileIndex}`}
+              className="login-carousel-tile"
               style={{
                 backgroundImage: `url(${slide.image})`,
-                clipPath: `inset(0 ${right}% 0 ${left}%)`,
-                animationDelay: `${sliceIndex * 58}ms`,
+                clipPath: `inset(${top}% ${right}% ${bottom}% ${left}%)`,
+                animationDelay: `${revealOrder * 28}ms`,
               }}
             />
           )

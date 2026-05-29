@@ -190,31 +190,34 @@
   to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 
-@keyframes login-slice-reveal {
+@keyframes login-tile-reveal {
   0% {
     opacity: 0;
-    filter: saturate(1.35) contrast(1.2);
-    transform: translate3d(-18px, 0, 0) scale(1.025);
-    background-position: 47% 50%;
-  }
-  28% {
-    opacity: 0.82;
     filter: saturate(1.45) contrast(1.28);
-    transform: translate3d(10px, 0, 0) scale(1.02);
+    transform: translate3d(-8px, 6px, 0) scale(1.035);
   }
-  46% {
-    opacity: 0.38;
-    transform: translate3d(-5px, 0, 0) scale(1.015);
+  14% {
+    opacity: 0.92;
+    transform: translate3d(7px, -5px, 0) scale(1.03);
   }
-  68% {
+  25% {
+    opacity: 0.18;
+    transform: translate3d(-4px, 3px, 0) scale(1.02);
+  }
+  42% {
     opacity: 0.94;
-    filter: saturate(1.12) contrast(1.08);
+    filter: saturate(1.25) contrast(1.16);
+  }
+  58% {
+    opacity: 0.36;
+  }
+  76% {
+    opacity: 1;
   }
   100% {
     opacity: 1;
     filter: saturate(1) contrast(1);
     transform: translate3d(0, 0, 0) scale(1);
-    background-position: 50% 50%;
   }
 }
 
@@ -288,7 +291,7 @@
     login-art-drift 9.5s ease-in-out 560ms infinite;
 }
 
-.login-carousel-slice {
+.login-carousel-tile {
   position: absolute;
   inset: 0;
   display: block;
@@ -297,11 +300,11 @@
   background-size: contain;
   opacity: 0;
   will-change: opacity, transform, filter;
-  animation: login-slice-reveal 980ms steps(5, end) forwards;
+  animation: login-tile-reveal 760ms steps(2, end) forwards;
 }
 
 @media (min-width: 768px) {
-  .login-carousel-slice {
+  .login-carousel-tile {
     background-size: cover;
   }
 }
@@ -327,7 +330,7 @@
 @media (prefers-reduced-motion: reduce) {
   .login-carousel-art,
   .login-carousel-layer,
-  .login-carousel-slice,
+  .login-carousel-tile,
   .login-pixel-links path,
   .login-carousel-title,
   .login-carousel-control {
