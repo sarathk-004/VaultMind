@@ -54,20 +54,29 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
   return (
     <section className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#191919] px-6 py-12 md:min-h-screen">
       <div className="login-pixels" aria-hidden>
-        <span className="login-pixel" style={{ left: "8%", top: "10%", width: "6px", height: "6px", backgroundColor: "#CECBF6", animationDelay: "0.2s", opacity: 0.35 }} />
-        <span className="login-pixel" style={{ left: "16%", top: "24%", width: "4px", height: "4px", backgroundColor: "#F4F4F4", animationDelay: "0.9s", opacity: 0.28 }} />
-        <span className="login-pixel" style={{ left: "12%", top: "58%", width: "5px", height: "5px", backgroundColor: "#D9592A", animationDelay: "1.4s", opacity: 0.3 }} />
-        <span className="login-pixel" style={{ left: "6%", top: "78%", width: "6px", height: "6px", backgroundColor: "#3F3A3A", animationDelay: "0.4s", opacity: 0.26 }} />
-        <span className="login-pixel" style={{ left: "18%", top: "86%", width: "4px", height: "4px", backgroundColor: "#CECBF6", animationDelay: "1.1s", opacity: 0.32 }} />
-        <span className="login-pixel" style={{ left: "82%", top: "12%", width: "5px", height: "5px", backgroundColor: "#F4F4F4", animationDelay: "0.7s", opacity: 0.3 }} />
-        <span className="login-pixel" style={{ left: "88%", top: "28%", width: "4px", height: "4px", backgroundColor: "#D9592A", animationDelay: "1.6s", opacity: 0.3 }} />
-        <span className="login-pixel" style={{ left: "78%", top: "52%", width: "6px", height: "6px", backgroundColor: "#CECBF6", animationDelay: "0.3s", opacity: 0.33 }} />
-        <span className="login-pixel" style={{ left: "86%", top: "74%", width: "5px", height: "5px", backgroundColor: "#3F3A3A", animationDelay: "1.2s", opacity: 0.25 }} />
-        <span className="login-pixel" style={{ left: "92%", top: "88%", width: "4px", height: "4px", backgroundColor: "#F4F4F4", animationDelay: "0.8s", opacity: 0.28 }} />
-        <span className="login-pixel" style={{ left: "30%", top: "6%", width: "4px", height: "4px", backgroundColor: "#D9592A", animationDelay: "1.9s", opacity: 0.3 }} />
-        <span className="login-pixel" style={{ left: "70%", top: "6%", width: "4px", height: "4px", backgroundColor: "#CECBF6", animationDelay: "1.3s", opacity: 0.32 }} />
-        <span className="login-pixel" style={{ left: "28%", top: "92%", width: "5px", height: "5px", backgroundColor: "#F4F4F4", animationDelay: "2.2s", opacity: 0.27 }} />
-        <span className="login-pixel" style={{ left: "72%", top: "92%", width: "5px", height: "5px", backgroundColor: "#D9592A", animationDelay: "0.6s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "6%", top: "8%", width: "10px", height: "10px", backgroundColor: "#CECBF6", animationDelay: "0.2s", opacity: 0.34 }} />
+        <span className="login-pixel" style={{ left: "14%", top: "18%", width: "8px", height: "8px", backgroundColor: "#F4F4F4", animationDelay: "0.9s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "9%", top: "30%", width: "9px", height: "9px", backgroundColor: "#D9592A", animationDelay: "1.4s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "18%", top: "42%", width: "8px", height: "8px", backgroundColor: "#3F3A3A", animationDelay: "0.4s", opacity: 0.28 }} />
+        <span className="login-pixel" style={{ left: "10%", top: "56%", width: "10px", height: "10px", backgroundColor: "#CECBF6", animationDelay: "1.1s", opacity: 0.33 }} />
+        <span className="login-pixel" style={{ left: "16%", top: "70%", width: "8px", height: "8px", backgroundColor: "#F4F4F4", animationDelay: "1.7s", opacity: 0.29 }} />
+        <span className="login-pixel" style={{ left: "8%", top: "84%", width: "9px", height: "9px", backgroundColor: "#D9592A", animationDelay: "0.5s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "24%", top: "12%", width: "8px", height: "8px", backgroundColor: "#3F3A3A", animationDelay: "2.1s", opacity: 0.26 }} />
+        <span className="login-pixel" style={{ left: "30%", top: "6%", width: "9px", height: "9px", backgroundColor: "#D9592A", animationDelay: "1.9s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "42%", top: "10%", width: "8px", height: "8px", backgroundColor: "#F4F4F4", animationDelay: "0.6s", opacity: 0.28 }} />
+        <span className="login-pixel" style={{ left: "58%", top: "8%", width: "8px", height: "8px", backgroundColor: "#CECBF6", animationDelay: "1.3s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "70%", top: "12%", width: "9px", height: "9px", backgroundColor: "#F4F4F4", animationDelay: "0.7s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "86%", top: "10%", width: "10px", height: "10px", backgroundColor: "#CECBF6", animationDelay: "0.3s", opacity: 0.34 }} />
+        <span className="login-pixel" style={{ left: "92%", top: "22%", width: "8px", height: "8px", backgroundColor: "#D9592A", animationDelay: "1.6s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "84%", top: "36%", width: "9px", height: "9px", backgroundColor: "#3F3A3A", animationDelay: "1.2s", opacity: 0.26 }} />
+        <span className="login-pixel" style={{ left: "90%", top: "50%", width: "10px", height: "10px", backgroundColor: "#F4F4F4", animationDelay: "0.8s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "82%", top: "66%", width: "8px", height: "8px", backgroundColor: "#CECBF6", animationDelay: "1.5s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "88%", top: "78%", width: "9px", height: "9px", backgroundColor: "#D9592A", animationDelay: "0.4s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "94%", top: "88%", width: "8px", height: "8px", backgroundColor: "#3F3A3A", animationDelay: "1.1s", opacity: 0.26 }} />
+        <span className="login-pixel" style={{ left: "28%", top: "90%", width: "9px", height: "9px", backgroundColor: "#F4F4F4", animationDelay: "2.2s", opacity: 0.28 }} />
+        <span className="login-pixel" style={{ left: "46%", top: "86%", width: "8px", height: "8px", backgroundColor: "#CECBF6", animationDelay: "0.9s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "62%", top: "92%", width: "9px", height: "9px", backgroundColor: "#D9592A", animationDelay: "0.6s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "74%", top: "84%", width: "8px", height: "8px", backgroundColor: "#F4F4F4", animationDelay: "1.8s", opacity: 0.28 }} />
       </div>
       {onBack && (
         <Button

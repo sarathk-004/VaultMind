@@ -198,7 +198,7 @@
 
 .login-pixel {
   position: absolute;
-  border-radius: 2px;
+  border-radius: 0;
   opacity: 0.32;
   animation: login-pixel-flicker 2.6s steps(2, end) infinite;
 }
