@@ -265,7 +265,6 @@ function GraphCanvas({
     moved?: boolean
   }>({ type: null, startClientX: 0, startClientY: 0 })
   const activePointersRef = useRef<Map<number, { clientX: number; clientY: number }>>(new Map())
-  const lastInteractionMovedRef = useRef(false)
 
   const screenToWorld = useCallback(
     (clientX: number, clientY: number) => {
@@ -333,7 +332,6 @@ function GraphCanvas({
     if (e.pointerType === "mouse" && e.button !== 0) return
     activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY })
     e.currentTarget.setPointerCapture?.(e.pointerId)
-    lastInteractionMovedRef.current = false
     if (beginPinchIfReady()) return
     interactionRef.current = {
       type: "pan",
@@ -351,7 +349,6 @@ function GraphCanvas({
     if (e.pointerType === "mouse" && e.button !== 0) return
     activePointersRef.current.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY })
     containerRef.current?.setPointerCapture?.(e.pointerId)
-    lastInteractionMovedRef.current = false
     if (beginPinchIfReady()) return
     const node = positionMap.get(nodeId)
     if (!node) return
@@ -390,7 +387,6 @@ function GraphCanvas({
           y: centerY - (it.startWorldY || 0) * newK,
         })
         it.moved = true
-        lastInteractionMovedRef.current = true
         return
       }
 
@@ -398,7 +394,6 @@ function GraphCanvas({
       const dx = e.clientX - it.startClientX
       const dy = e.clientY - it.startClientY
       if (Math.abs(dx) + Math.abs(dy) > 3) it.moved = true
-      if (it.moved) lastInteractionMovedRef.current = true
 
       if (it.type === "pan") {
         setTransform(prev => ({
@@ -417,8 +412,16 @@ function GraphCanvas({
       }
     }
     const onUp = (e: PointerEvent) => {
+      const it = interactionRef.current
+      const shouldOpenNode =
+        it.type === "node" &&
+        it.startPointerId === e.pointerId &&
+        it.nodeId &&
+        !it.moved
       activePointersRef.current.delete(e.pointerId)
-      lastInteractionMovedRef.current = Boolean(interactionRef.current.moved)
+      if (shouldOpenNode) {
+        onNodeClick(it.nodeId!)
+      }
       if (activePointersRef.current.size >= 2) {
         beginPinchIfReady()
         return
@@ -433,7 +436,7 @@ function GraphCanvas({
       window.removeEventListener("pointerup", onUp)
       window.removeEventListener("pointercancel", onUp)
     }
-  }, [beginPinchIfReady, transform.k])
+  }, [beginPinchIfReady, onNodeClick, transform.k])
 
   // Computes a zoom level that fits, but clamps to a readable minimum so the
   // side panel doesn't end up at 8% zoom when there are 100+ nodes — instead
@@ -509,14 +512,6 @@ function GraphCanvas({
         y: cy - (cy - prev.y) * ratio,
       }
     })
-  }
-
-  const handleNodeClickGuarded = (id: string) => {
-    if (lastInteractionMovedRef.current) {
-      lastInteractionMovedRef.current = false
-      return
-    }
-    onNodeClick(id)
   }
 
   const totalNodes = renderGraph?.nodes.length ?? 0
@@ -689,7 +684,6 @@ function GraphCanvas({
                       if (e.pointerType === "mouse") setHoveredId(null)
                     }}
                     onPointerDown={e => onNodePointerDown(e, node.id)}
-                    onClick={() => handleNodeClickGuarded(node.id)}
                     role="button"
                     tabIndex={0}
                     onKeyDown={e => {
