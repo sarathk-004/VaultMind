@@ -52,19 +52,35 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
   const activeError = submitError ?? queryError
 
   return (
-    <section className="relative flex min-h-[100dvh] items-center justify-center bg-[#191919] px-6 py-12 md:min-h-screen">
+    <section className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#191919] px-6 py-12 md:min-h-screen">
+      <div className="login-pixels" aria-hidden>
+        <span className="login-pixel" style={{ left: "8%", top: "10%", width: "6px", height: "6px", backgroundColor: "#CECBF6", animationDelay: "0.2s", opacity: 0.35 }} />
+        <span className="login-pixel" style={{ left: "16%", top: "24%", width: "4px", height: "4px", backgroundColor: "#F4F4F4", animationDelay: "0.9s", opacity: 0.28 }} />
+        <span className="login-pixel" style={{ left: "12%", top: "58%", width: "5px", height: "5px", backgroundColor: "#D9592A", animationDelay: "1.4s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "6%", top: "78%", width: "6px", height: "6px", backgroundColor: "#3F3A3A", animationDelay: "0.4s", opacity: 0.26 }} />
+        <span className="login-pixel" style={{ left: "18%", top: "86%", width: "4px", height: "4px", backgroundColor: "#CECBF6", animationDelay: "1.1s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "82%", top: "12%", width: "5px", height: "5px", backgroundColor: "#F4F4F4", animationDelay: "0.7s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "88%", top: "28%", width: "4px", height: "4px", backgroundColor: "#D9592A", animationDelay: "1.6s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "78%", top: "52%", width: "6px", height: "6px", backgroundColor: "#CECBF6", animationDelay: "0.3s", opacity: 0.33 }} />
+        <span className="login-pixel" style={{ left: "86%", top: "74%", width: "5px", height: "5px", backgroundColor: "#3F3A3A", animationDelay: "1.2s", opacity: 0.25 }} />
+        <span className="login-pixel" style={{ left: "92%", top: "88%", width: "4px", height: "4px", backgroundColor: "#F4F4F4", animationDelay: "0.8s", opacity: 0.28 }} />
+        <span className="login-pixel" style={{ left: "30%", top: "6%", width: "4px", height: "4px", backgroundColor: "#D9592A", animationDelay: "1.9s", opacity: 0.3 }} />
+        <span className="login-pixel" style={{ left: "70%", top: "6%", width: "4px", height: "4px", backgroundColor: "#CECBF6", animationDelay: "1.3s", opacity: 0.32 }} />
+        <span className="login-pixel" style={{ left: "28%", top: "92%", width: "5px", height: "5px", backgroundColor: "#F4F4F4", animationDelay: "2.2s", opacity: 0.27 }} />
+        <span className="login-pixel" style={{ left: "72%", top: "92%", width: "5px", height: "5px", backgroundColor: "#D9592A", animationDelay: "0.6s", opacity: 0.3 }} />
+      </div>
       {onBack && (
         <Button
           type="button"
           variant="ghost"
-          className="login-carousel-control absolute w-[30%] sm:w-[30%] md:w-[50%] lg:w-[400px] bottom-10 h-[64px] rounded-none border border-[#EAEAEA] bg-[#d5d5d5] text-[21px] font-bold tracking-[-0.03em] text-[#3F3A3A] hover:bg-[#F0F0F0] hover:text-[#3F3A3A] active:bg-[#DDDDDD]"
+          className="login-carousel-control absolute bottom-10 z-10 w-[30%] rounded-none border border-[#EAEAEA] bg-[#d5d5d5] text-[21px] font-bold tracking-[-0.03em] text-[#3F3A3A] hover:bg-[#F0F0F0] hover:text-[#3F3A3A] active:bg-[#DDDDDD] sm:w-[30%] md:w-[50%] lg:w-[400px]"
           onClick={onBack}
         >
           Back
         </Button>
       )}
 
-      <div className="flex w-full max-w-[520px] flex-col items-center">
+      <div className="relative z-10 flex w-full max-w-[520px] flex-col items-center">
         <BrandMark className="h-[92px] w-[92px]" alt="Graphyne" />
         <h2 className="mt-9 text-center text-[28px] font-bold leading-none tracking-[-0.03em] text-[#FAFAFA]">
           Welcome to graphyne!
@@ -74,7 +90,7 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
           type="button"
           onClick={handleConnect}
           disabled={submitting}
-          className="mt-10 h-[68px] w-[min(100%,500px)] rounded-none border border-[#EAEAEA] bg-[#F7F7F7] text-[21px] font-bold tracking-[-0.03em] text-[#3B3B3B] transition-[background-color,box-shadow,border-color] duration-200 ease-out hover:border-white hover:bg-white hover:shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_14px_30px_rgba(0,0,0,0.18)] active:bg-[#F2F2F2]"
+          className="mt-10 h-[58px] w-[min(100%,460px)] rounded-none border border-[#EAEAEA] bg-[#F7F7F7] text-[18px] font-bold tracking-[-0.03em] text-[#3B3B3B] transition-[background-color,box-shadow,border-color] duration-200 ease-out hover:border-white hover:bg-white hover:shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_14px_30px_rgba(0,0,0,0.18)] active:bg-[#F2F2F2] sm:h-[68px] sm:w-[min(100%,500px)] sm:text-[21px]"
         >
           {submitting ? <Loader2 className="mr-3 h-6 w-6 animate-spin" /> : <NotionIcon />}
           {submitting ? "Opening Notion..." : "Sign In with Notion"}
@@ -96,7 +112,7 @@ function NotionIcon() {
     <img
       src="/brand-assets/notion-logo.svg"
       alt=""
-      className="mr-3 h-8 w-8"
+      className="mr-3 h-6 w-6 sm:h-8 sm:w-8"
       aria-hidden
     />
   )

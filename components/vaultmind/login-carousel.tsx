@@ -111,7 +111,7 @@ export function LoginIntroSlide({ className = "" }: { className?: string }) {
         draggable={false}
       />
       <div className="absolute inset-0 flex items-center justify-center px-10">
-        <h1 className="login-carousel-title max-w-[660px] whitespace-pre-line text-center font-mono text-[clamp(2.25rem,14vw,3.85rem)] font-black leading-[0.98] tracking-[-0.03em] text-[#FAFAFA]">
+        <h1 className="login-carousel-title max-w-[660px] whitespace-pre-line text-center font-mono text-[clamp(1.85rem,10vw,3.2rem)] font-black leading-[1.02] tracking-[-0.03em] text-[#FAFAFA] sm:text-[clamp(2.1rem,12vw,3.5rem)] md:text-[clamp(2.25rem,14vw,3.85rem)] md:leading-[0.98]">
           {slide.title}
         </h1>
       </div>
