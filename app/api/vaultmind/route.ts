@@ -155,33 +155,89 @@ function summarizeLines(content: string, maxItems = 6): string[] {
   const lines = content.split("\n")
   const bullets: string[] = []
   const headings: string[] = []
+  const paragraphs: string[] = []
   let inCode = false
+  let inTable = false
+  let buffer: string[] = []
+
+  const flushParagraph = () => {
+    if (buffer.length === 0) return
+    const merged = buffer.join(" ").replace(/\s+/g, " ").trim()
+    if (merged) paragraphs.push(merged)
+    buffer = []
+  }
+
+  const splitSentences = (text: string) =>
+    text.split(/[.!?]\s+/).map(s => s.trim()).filter(Boolean)
 
   for (const line of lines) {
     const trimmed = line.trim()
     if (trimmed.startsWith("```")) {
       inCode = !inCode
+      flushParagraph()
       continue
     }
-    if (inCode || !trimmed) continue
+    if (inCode) continue
+    if (!trimmed) {
+      flushParagraph()
+      inTable = false
+      continue
+    }
+
+    if (/^\|.*\|$/.test(trimmed)) {
+      inTable = true
+      flushParagraph()
+      continue
+    }
+    if (inTable) continue
 
     if (trimmed.startsWith("#")) {
+      flushParagraph()
       const text = trimmed.replace(/^#+\s*/, "").trim()
       if (text) headings.push(text)
       continue
     }
 
     if (/^[-*+]\s+/.test(trimmed) || /^\d+\./.test(trimmed)) {
+      flushParagraph()
       const text = trimmed.replace(/^[-*+]\s+/, "").replace(/^\d+\./, "").trim()
       if (text) bullets.push(text)
+      continue
+    }
+
+    if (trimmed.startsWith("_") && trimmed.endsWith("_")) continue
+    buffer.push(trimmed)
+  }
+
+  flushParagraph()
+
+  const items: string[] = []
+  const seen = new Set<string>()
+  const pushItem = (value: string) => {
+    const cleaned = value.replace(/\s+/g, " ").trim()
+    if (cleaned.length < 4) return
+    if (seen.has(cleaned)) return
+    seen.add(cleaned)
+    items.push(cleaned)
+  }
+
+  bullets.forEach(pushItem)
+
+  if (items.length < maxItems) {
+    for (const paragraph of paragraphs) {
+      for (const sentence of splitSentences(paragraph)) {
+        pushItem(sentence)
+        if (items.length >= maxItems) break
+      }
+      if (items.length >= maxItems) break
     }
   }
 
-  const picked = (bullets.length ? bullets : headings)
-    .filter((item, index, arr) => arr.indexOf(item) === index)
-    .slice(0, maxItems)
+  if (items.length < maxItems) {
+    headings.forEach(pushItem)
+  }
 
-  if (picked.length > 0) return picked
+  if (items.length > 0) return items.slice(0, maxItems)
 
   const plain = content
     .replace(/```[\s\S]*?```/g, " ")
