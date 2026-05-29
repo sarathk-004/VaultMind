@@ -234,8 +234,8 @@
 
 .login-pixel-links path {
   fill: none;
-  stroke: rgba(206, 203, 246, 0.48);
-  stroke-width: 0.16;
+  stroke: rgba(206, 203, 246, 0.62);
+  stroke-width: 1.1;
   stroke-linecap: square;
   stroke-linejoin: round;
   stroke-dasharray: 4 7;
@@ -244,12 +244,12 @@
 }
 
 .login-pixel-links path:nth-child(2n) {
-  stroke: rgba(217, 89, 42, 0.36);
+  stroke: rgba(217, 89, 42, 0.5);
   animation-delay: 1.2s;
 }
 
 .login-pixel-links path:nth-child(3n) {
-  stroke: rgba(244, 244, 244, 0.32);
+  stroke: rgba(244, 244, 244, 0.48);
   animation-delay: 2.1s;
 }
 

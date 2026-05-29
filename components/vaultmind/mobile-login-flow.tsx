@@ -22,11 +22,25 @@ export function MobileLoginFlow({ notion, reason }: MobileLoginFlowProps) {
     <div className="relative min-h-[100dvh]">
       <LoginIntroSlide />
       <div className="absolute left-1/2 top-6 -translate-x-1/2">
-        <img
-          src="/brand-assets/favicon-light.svg"
-          alt="Graphyne"
-          className="h-12 w-12"
-        />
+        <svg
+          className="h-12 w-12 text-[#FAFAFA]"
+          viewBox="0 0 96 96"
+          role="img"
+          aria-label="Graphyne"
+        >
+          <path
+            d="M24 61 48 27 73 61"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="24" cy="61" r="7" fill="#D9592A" />
+          <circle cx="48" cy="27" r="7" fill="currentColor" />
+          <circle cx="73" cy="61" r="7" fill="#D9592A" />
+          <path d="M32 69h33" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+        </svg>
       </div>
       <Button
         type="button"

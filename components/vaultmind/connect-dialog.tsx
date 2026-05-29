@@ -9,12 +9,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { CheckCircle2, AlertCircle, Loader2, ExternalLink, Plug, PlugZap } from "lucide-react"
+import { CheckCircle2, AlertCircle, Loader2, ExternalLink, LogOut, Plug, PlugZap } from "lucide-react"
 
 interface ConnectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Called after successful connect / disconnect so the parent can re-fetch the workspace. */
+  /** Called after successful connect / logout so the parent can re-fetch the workspace. */
   onConnectionChange: () => void
 }
 
@@ -35,6 +35,7 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
   const [status, setStatus] = useState<DebugStatus | null>(null)
   const [statusLoading, setStatusLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null)
 
@@ -85,19 +86,19 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
     }
   }
 
-  const handleDisconnect = async () => {
-    setSubmitting(true)
+  const handleLogout = async () => {
+    setLoggingOut(true)
     setSubmitError(null)
     setSubmitSuccess(null)
     try {
-      await fetch("/api/vaultmind/connect", { method: "DELETE" })
-      setSubmitSuccess("Disconnected. Your Notion authorization has been cleared.")
+      const res = await fetch("/api/vaultmind/connect", { method: "DELETE" })
+      if (!res.ok) throw new Error(`Status ${res.status}`)
+      setSubmitSuccess("Logged out. Your Notion authorization has been cleared.")
       onConnectionChange()
-      await refreshStatus()
+      window.location.assign("/login")
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSubmitting(false)
+      setLoggingOut(false)
     }
   }
 
@@ -177,11 +178,16 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
               type="button"
               variant="ghost"
               size="sm"
-              onClick={handleDisconnect}
-              disabled={submitting || !hasOAuthConnection}
+              onClick={handleLogout}
+              disabled={submitting || loggingOut || !hasOAuthConnection}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
-              Disconnect
+              {loggingOut ? (
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              ) : (
+                <LogOut className="mr-1.5 h-3 w-3" />
+              )}
+              Log out
             </Button>
             <div className="flex items-center gap-2">
               <Button
@@ -189,7 +195,7 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
                 variant="outline"
                 size="sm"
                 onClick={() => onOpenChange(false)}
-                disabled={submitting}
+                disabled={submitting || loggingOut}
                 className="text-xs"
               >
                 Close
@@ -198,7 +204,7 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
                 type="button"
                 size="sm"
                 onClick={handleConnect}
-                disabled={submitting}
+                disabled={submitting || loggingOut}
                 className="gap-1.5 text-xs"
               >
                 {submitting ? (

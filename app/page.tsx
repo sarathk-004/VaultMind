@@ -172,6 +172,11 @@ export default function GraphynePage() {
     void reloadWorkspace()
   }, [reloadWorkspace])
 
+  useEffect(() => {
+    if (workspace.loading || workspace.connected) return
+    window.location.replace("/login")
+  }, [workspace.connected, workspace.loading])
+
   // ── Conversations ────────────────────────────────────────────────────────
   const [history, setHistory] = useState<ChatHistoryItem[]>(SEED_HISTORY)
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
