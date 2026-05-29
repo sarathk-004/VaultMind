@@ -152,6 +152,41 @@ function buildBriefAnswer(
 }
 
 function summarizeLines(content: string, maxItems = 6): string[] {
+  const { bullets, headings, sentences } = extractSummaryCandidates(content)
+
+  const items: string[] = []
+  const seen = new Set<string>()
+  const pushItem = (value: string) => {
+    const cleaned = value.replace(/\s+/g, " ").trim()
+    if (cleaned.length < 4) return
+    if (seen.has(cleaned)) return
+    seen.add(cleaned)
+    items.push(cleaned)
+  }
+
+  bullets.forEach(pushItem)
+
+  if (items.length < maxItems && sentences.length > 0) {
+    for (const sentence of rankSentences(sentences, maxItems)) {
+      pushItem(sentence)
+      if (items.length >= maxItems) break
+    }
+  }
+
+  if (items.length < maxItems) {
+    headings.forEach(pushItem)
+  }
+
+  if (items.length > 0) return items.slice(0, maxItems)
+
+  return sentences.slice(0, Math.min(3, maxItems))
+}
+
+function extractSummaryCandidates(content: string): {
+  bullets: string[]
+  headings: string[]
+  sentences: string[]
+} {
   const lines = content.split("\n")
   const bullets: string[] = []
   const headings: string[] = []
@@ -166,9 +201,6 @@ function summarizeLines(content: string, maxItems = 6): string[] {
     if (merged) paragraphs.push(merged)
     buffer = []
   }
-
-  const splitSentences = (text: string) =>
-    text.split(/[.!?]\s+/).map(s => s.trim()).filter(Boolean)
 
   for (const line of lines) {
     const trimmed = line.trim()
@@ -211,42 +243,104 @@ function summarizeLines(content: string, maxItems = 6): string[] {
 
   flushParagraph()
 
-  const items: string[] = []
-  const seen = new Set<string>()
-  const pushItem = (value: string) => {
-    const cleaned = value.replace(/\s+/g, " ").trim()
-    if (cleaned.length < 4) return
-    if (seen.has(cleaned)) return
-    seen.add(cleaned)
-    items.push(cleaned)
-  }
+  const sentences = paragraphs
+    .flatMap(p => p.split(/[.!?]\s+/))
+    .map(s => s.trim())
+    .filter(Boolean)
 
-  bullets.forEach(pushItem)
+  return { bullets, headings, sentences }
+}
 
-  if (items.length < maxItems) {
-    for (const paragraph of paragraphs) {
-      for (const sentence of splitSentences(paragraph)) {
-        pushItem(sentence)
-        if (items.length >= maxItems) break
-      }
-      if (items.length >= maxItems) break
+function tokenizeSummary(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(token => token.length > 2)
+}
+
+function rankSentences(sentences: string[], maxItems: number): string[] {
+  if (sentences.length <= 2) return sentences
+
+  const tokens = sentences.map(s => tokenizeSummary(s))
+  const docFreq = new Map<string, number>()
+  for (const sentenceTokens of tokens) {
+    const unique = new Set(sentenceTokens)
+    for (const token of unique) {
+      docFreq.set(token, (docFreq.get(token) ?? 0) + 1)
     }
   }
 
-  if (items.length < maxItems) {
-    headings.forEach(pushItem)
+  const tfidf = tokens.map((sentenceTokens, index) => {
+    const counts = new Map<string, number>()
+    for (const token of sentenceTokens) {
+      counts.set(token, (counts.get(token) ?? 0) + 1)
+    }
+    const vec = new Map<string, number>()
+    const maxTf = Math.max(...Array.from(counts.values()), 1)
+    for (const [token, count] of counts) {
+      const tf = count / maxTf
+      const df = docFreq.get(token) ?? 1
+      const idf = Math.log((sentences.length + 1) / (df + 1)) + 1
+      vec.set(token, tf * idf)
+    }
+    return { index, vec }
+  })
+
+  const similarity = Array.from({ length: sentences.length }, () => Array(sentences.length).fill(0))
+  for (let i = 0; i < tfidf.length; i++) {
+    for (let j = i + 1; j < tfidf.length; j++) {
+      const score = cosineSim(tfidf[i].vec, tfidf[j].vec)
+      similarity[i][j] = score
+      similarity[j][i] = score
+    }
   }
 
-  if (items.length > 0) return items.slice(0, maxItems)
+  const scores = textRank(similarity, 0.85, 20)
+  const ranked = scores
+    .map((score, index) => ({ index, score, length: sentences[index].length }))
+    .sort((a, b) => b.score - a.score || b.length - a.length)
+    .slice(0, Math.min(maxItems, Math.max(3, Math.ceil(sentences.length * 0.3))))
+    .sort((a, b) => a.index - b.index)
+    .map(item => sentences[item.index])
 
-  const plain = content
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[#>*_`-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
+  return ranked
+}
 
-  const sentences = plain.split(/[.!?]\s+/).filter(Boolean)
-  return sentences.slice(0, Math.min(3, maxItems))
+function cosineSim(a: Map<string, number>, b: Map<string, number>): number {
+  let dot = 0
+  let normA = 0
+  let normB = 0
+  for (const value of a.values()) normA += value * value
+  for (const value of b.values()) normB += value * value
+  const keys = new Set([...a.keys(), ...b.keys()])
+  for (const key of keys) {
+    dot += (a.get(key) ?? 0) * (b.get(key) ?? 0)
+  }
+  if (normA === 0 || normB === 0) return 0
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+}
+
+function textRank(similarity: number[][], damping: number, iterations: number): number[] {
+  const n = similarity.length
+  if (n === 0) return []
+  let scores = Array(n).fill(1 / n)
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const next = Array(n).fill((1 - damping) / n)
+    for (let i = 0; i < n; i++) {
+      const row = similarity[i]
+      const rowSum = row.reduce((sum, v) => sum + v, 0)
+      if (rowSum === 0) continue
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue
+        next[j] += damping * (row[j] / rowSum) * scores[i]
+      }
+    }
+    scores = next
+  }
+
+  return scores
 }
 
 function buildSummaryAnswer(
