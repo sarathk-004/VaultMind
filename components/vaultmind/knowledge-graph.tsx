@@ -454,10 +454,18 @@ function GraphCanvas({
   useEffect(() => {
     const renderKey = (renderGraph?.nodes ?? []).map(n => n.id).join("|")
     const focusedKey = Array.from(focusedNodeIds).join("|")
-    const key = `${renderKey}::focused=${focusedKey}::fullscreen=${fullscreen}`
+    const locateKey = locateTargetIds.join("|")
+    const key = `${renderKey}::focused=${focusedKey}::locate=${locateKey}::fullscreen=${fullscreen}`
     if (key === lastGraphKey.current) return
     lastGraphKey.current = key
     if (!renderGraph || renderGraph.nodes.length === 0) return
+    const locateTransform = locateTargetIds.length
+      ? computeTransformForNodes(locateTargetIds, {
+          minZoom: fullscreen ? 0.48 : 0.65,
+          maxZoom: fullscreen ? 1.6 : 1.35,
+          padding: locateTargetIds.length <= 1 ? 180 : fullscreen ? 220 : 130,
+        })
+      : null
     const focusedTransform = queryActive
       ? computeTransformForNodes(Array.from(focusedNodeIds), {
           minZoom: fullscreen ? 0.18 : 0.24,
@@ -465,8 +473,8 @@ function GraphCanvas({
           padding: fullscreen ? 220 : 150,
         })
       : null
-    setTransform(focusedTransform ?? computeFitTransform())
-  }, [computeFitTransform, computeTransformForNodes, focusedNodeIds, fullscreen, queryActive, renderGraph])
+    setTransform(locateTransform ?? focusedTransform ?? computeFitTransform())
+  }, [computeFitTransform, computeTransformForNodes, focusedNodeIds, fullscreen, locateTargetIds, queryActive, renderGraph])
 
   const recenter = () => {
     if (!renderGraph || renderGraph.nodes.length === 0) return

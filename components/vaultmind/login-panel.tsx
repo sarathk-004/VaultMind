@@ -52,7 +52,7 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
   const activeError = submitError ?? queryError
 
   return (
-    <section className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#191919] px-6 py-12 md:min-h-screen">
+    <section className="relative flex min-h-[100dvh] items-start justify-center overflow-hidden bg-[#191919] px-6 pt-10 pb-14 md:min-h-screen md:items-center md:py-12">
       <div className="login-pixels" aria-hidden>
         <span className="login-pixel" style={{ left: "6%", top: "8%", width: "10px", height: "10px", backgroundColor: "#CECBF6", animationDelay: "0.2s", opacity: 0.34 }} />
         <span className="login-pixel" style={{ left: "14%", top: "18%", width: "8px", height: "8px", backgroundColor: "#F4F4F4", animationDelay: "0.9s", opacity: 0.3 }} />
@@ -89,9 +89,9 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
         </Button>
       )}
 
-      <div className="relative z-10 flex w-full max-w-[520px] flex-col items-center">
-        <BrandMark className="h-[92px] w-[92px]" alt="Graphyne" />
-        <h2 className="mt-9 text-center text-[28px] font-bold leading-none tracking-[-0.03em] text-[#FAFAFA]">
+      <div className="relative z-10 flex w-full max-w-[520px] flex-col items-center md:pt-0">
+        <BrandMark className="h-[72px] w-[72px] sm:h-[84px] sm:w-[84px] md:h-[92px] md:w-[92px]" alt="Graphyne" />
+        <h2 className="mt-6 text-center text-[24px] font-bold leading-none tracking-[-0.03em] text-[#FAFAFA] sm:mt-7 sm:text-[26px] md:mt-9 md:text-[28px]">
           Welcome to graphyne!
         </h2>
 
@@ -99,7 +99,7 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
           type="button"
           onClick={handleConnect}
           disabled={submitting}
-          className="mt-10 h-[58px] w-[min(100%,460px)] rounded-none border border-[#EAEAEA] bg-[#F7F7F7] text-[18px] font-bold tracking-[-0.03em] text-[#3B3B3B] transition-[background-color,box-shadow,border-color] duration-200 ease-out hover:border-white hover:bg-white hover:shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_14px_30px_rgba(0,0,0,0.18)] active:bg-[#F2F2F2] sm:h-[68px] sm:w-[min(100%,500px)] sm:text-[21px]"
+          className="mt-8 h-[58px] w-[min(100%,460px)] rounded-none border border-[#EAEAEA] bg-[#F7F7F7] text-[18px] font-bold tracking-[-0.03em] text-[#3B3B3B] transition-[background-color,box-shadow,border-color] duration-200 ease-out hover:border-white hover:bg-white hover:shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_14px_30px_rgba(0,0,0,0.18)] active:bg-[#F2F2F2] sm:mt-9 sm:h-[68px] sm:w-[min(100%,500px)] sm:text-[21px]"
         >
           {submitting ? <Loader2 className="mr-3 h-6 w-6 animate-spin" /> : <NotionIcon />}
           {submitting ? "Opening Notion..." : "Sign In with Notion"}

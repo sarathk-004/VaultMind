@@ -25,7 +25,7 @@ export function MobileLoginFlow({ notion, reason }: MobileLoginFlowProps) {
         <img
           src="/brand-assets/favicon-light.svg"
           alt="Graphyne"
-          className="h-18 w-18"
+          className="h-12 w-12"
         />
       </div>
       <Button

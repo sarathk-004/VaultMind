@@ -27,7 +27,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Loader2, Sun, Moon } from "lucide-react"
+import { Loader2, Sun, Moon, Settings } from "lucide-react"
 import { useTheme } from "next-themes"
 
 interface SettingsDialogProps {
@@ -168,6 +168,22 @@ export function SettingsDialog({
   const selectedModelLabel = provider === "auto"
     ? "Auto choose"
     : modelOptions.find(item => item.value === model)?.label ?? model
+  const availableProviders = PROVIDERS.filter(item =>
+    item.value !== "auto" &&
+    item.value !== "ollama" &&
+    Boolean(llmSettings?.hasKey[item.value as Exclude<LlmProvider, "auto" | "ollama">]),
+  )
+  const hasAnyKey = availableProviders.length > 0
+  const preferenceLabel = selectedKeyProvider?.label ?? availableProviders[0]?.label
+  const providerSummary = !hasAnyKey && provider !== "ollama"
+    ? "No models added"
+    : provider === "ollama"
+      ? `Ollama - ${selectedModelLabel || "Local"}`
+      : provider === "auto"
+        ? availableProviders.length > 1
+          ? `Auto · preference: ${preferenceLabel ?? "Provider"}`
+          : `Auto · ${preferenceLabel ?? "Provider"}`
+        : `${selectedProvider.label} - ${selectedModelLabel || "No model selected"}`
 
   const saveLlmSettings = async () => {
     setSaving(true)
@@ -196,7 +212,10 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[calc(100dvh-1rem)] overflow-y-auto bg-background border-border p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle className="text-base font-semibold tracking-tight">Settings</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <Settings className="h-4 w-4 text-muted-foreground" aria-hidden />
+            Settings
+          </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             Configure how Graphyne queries your workspace and renders the graph.
           </DialogDescription>
@@ -208,7 +227,7 @@ export function SettingsDialog({
               <div>
                 <div>Appearance</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  {mounted && resolvedTheme === "light" ? "Light" : "Dark"} theme - Graphyne brand colors
+                  {mounted && resolvedTheme === "light" ? "Light" : "Dark"} theme
                 </p>
               </div>
             </AccordionTrigger>
@@ -235,7 +254,7 @@ export function SettingsDialog({
               <div>
                 <div>Provider and model</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  {selectedProvider.label} - {selectedModelLabel || "No model selected"}
+                  {providerSummary}
                 </p>
               </div>
             </AccordionTrigger>

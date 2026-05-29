@@ -152,6 +152,10 @@
   body {
     @apply bg-background text-foreground;
   }
+  button:enabled,
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }
 
 .graph-grid {
