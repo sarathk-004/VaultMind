@@ -15,11 +15,140 @@ const INTENT_INSTRUCTIONS: Record<Intent, string> = {
   search:
     "The user wants to find pages, databases, tasks, and notes related to their query. List what you found, grouped by type, and guide them to open citations or explore the graph.",
   summarize:
-    "The user wants a concise summary of the topic. Extract the key points from the most relevant page and weave in context from linked resources. Be clear and direct.",
+    "The user wants a concise summary of a single page or topic. Summarize the most relevant page only. Do not list search results.",
   connect:
-    "The user wants to understand how ideas or resources relate to each other. Surface relationships, dependencies, and cross-references explicitly. Use phrases like 'X depends on Y' or 'A is linked to B through C'.",
+    "The user wants to understand how ideas or resources relate to each other. Explain connections and the grounds for each connection (references, contains, shared topic, same domain). Do not list search results.",
   brief:
-    "The user wants a quick daily/weekly briefing. Organize by urgency or category (tasks in flight, recent notes, key references). Highlight status and next actions where available.",
+    "The user wants a daily briefing. Find items tied to today's date in their Notion data and summarize what is planned for today.",
+}
+
+const MONTHS_LONG = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+]
+const MONTHS_SHORT = [
+  "Jan","Feb","Mar","Apr","May","Jun",
+  "Jul","Aug","Sep","Oct","Nov","Dec",
+]
+
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0")
+}
+
+function buildDateTokens(date: Date): string[] {
+  const year = date.getFullYear()
+  const monthIndex = date.getMonth()
+  const day = date.getDate()
+  const mm = pad2(monthIndex + 1)
+  const dd = pad2(day)
+  const longMonth = MONTHS_LONG[monthIndex]
+  const shortMonth = MONTHS_SHORT[monthIndex]
+
+  const tokens = new Set<string>([
+    `${year}-${mm}-${dd}`,
+    `${year}/${mm}/${dd}`,
+    `${mm}/${dd}/${year}`,
+    `${dd}/${mm}/${year}`,
+    `${shortMonth} ${day}`,
+    `${shortMonth} ${dd}`,
+    `${longMonth} ${day}`,
+    `${longMonth} ${dd}`,
+    `${shortMonth} ${day}, ${year}`,
+    `${longMonth} ${day}, ${year}`,
+    `${day} ${shortMonth}`,
+    `${day} ${longMonth}`,
+    "today",
+  ])
+
+  return Array.from(tokens)
+}
+
+function formatDateLabel(date: Date): string {
+  const month = MONTHS_LONG[date.getMonth()]
+  return `${month} ${date.getDate()}, ${date.getFullYear()}`
+}
+
+function extractBriefItems(
+  contents: { title: string; type: string; content: string }[],
+  dateTokens: string[],
+): Array<{ title: string; type: string; lines: string[] }> {
+  const tokens = dateTokens.map(t => t.toLowerCase())
+  const items: Array<{ title: string; type: string; lines: string[] }> = []
+
+  for (const entry of contents) {
+    const lines = entry.content
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean)
+      .filter(line => !/^\|\s*---/.test(line))
+
+    const matches = lines.filter(line => {
+      const lower = line.toLowerCase()
+      return tokens.some(token => lower.includes(token))
+    })
+
+    if (matches.length > 0) {
+      items.push({ title: entry.title, type: entry.type, lines: matches.slice(0, 5) })
+    }
+  }
+
+  return items
+}
+
+function buildConnectionAnswer(
+  message: string,
+  graph: { nodes: { id: string; label: string }[]; edges: { from: string; to: string; relation?: string }[] },
+  seedIds: Set<string>,
+): string {
+  const nodesById = new Map(graph.nodes.map(n => [n.id, n.label]))
+  const relationReason: Record<string, string> = {
+    references: "explicit reference in the page content",
+    contains: "parent/child structure in Notion",
+    "relates to": "semantic similarity in content",
+    "shares topic": "shared topic classification",
+    "same domain": "same domain classification",
+  }
+
+  const directEdges = graph.edges.filter(e => seedIds.has(e.from) && seedIds.has(e.to))
+  const edges = directEdges.length > 0 ? directEdges : graph.edges.slice(0, 10)
+
+  if (edges.length === 0) {
+    return `I couldn't find explicit links between the top pages for "${message}". Try refining the query or open a page so I can connect it to related items.`
+  }
+
+  const lines: string[] = [`## Connections for "${message}"`, ""]
+  for (const edge of edges) {
+    const from = nodesById.get(edge.from) ?? edge.from
+    const to = nodesById.get(edge.to) ?? edge.to
+    const relation = edge.relation ?? "linked to"
+    const reason = relationReason[relation] ?? "graph relationship"
+    lines.push(`- **${from}** ${relation} **${to}** — ${reason}.`)
+  }
+
+  return lines.join("\n")
+}
+
+function buildBriefAnswer(
+  message: string,
+  dateLabel: string,
+  items: Array<{ title: string; type: string; lines: string[] }>,
+): string {
+  if (items.length === 0) {
+    return `I couldn't find anything dated for ${dateLabel}. Try sharing the relevant pages or add today's date to your task or calendar entries.`
+  }
+
+  const lines: string[] = [`## Today — ${dateLabel}`, ""]
+  if (message.trim()) lines.push(`_${message.trim()}_`, "")
+
+  for (const item of items) {
+    lines.push(`### ${item.title}`)
+    for (const line of item.lines) {
+      lines.push(`- ${line}`)
+    }
+    lines.push("")
+  }
+
+  return lines.join("\n").trim()
 }
 
 export async function POST(req: NextRequest) {
@@ -55,7 +184,13 @@ export async function POST(req: NextRequest) {
     console.log(
       `[v0] API: snapshot has ${snap.pages.size} pages, ${snap.edges.length} edges, usingMock=${snap.usingMock}`,
     )
-    const topPages = await rankPages(message, snap, token)
+    const today = new Date()
+    const dateTokens = intentKey === "brief" ? buildDateTokens(today) : []
+    const rankingQuery = intentKey === "brief"
+      ? `${message} ${dateTokens.join(" ")}`.trim()
+      : message
+
+    const topPages = await rankPages(rankingQuery, snap, token)
     console.log(
       "[v0] API: ranked",
       topPages.length,
@@ -66,15 +201,44 @@ export async function POST(req: NextRequest) {
         .join(" | "),
     )
 
-    // 2. Fetch content for top 3 pages
+    const contentLimit = intentKey === "summarize"
+      ? 1
+      : intentKey === "brief"
+        ? 8
+        : intentKey === "search"
+          ? 3
+          : 0
+
+    // 2. Fetch content for the top pages (intent-specific)
     const contents = await Promise.all(
-      topPages.slice(0, 3).map(p => fetchPageContent(p.id, token)),
+      topPages.slice(0, contentLimit).map(p => fetchPageContent(p.id, token)),
     )
     const validContents = contents.filter((c): c is NonNullable<typeof c> => c !== null)
     console.log("[v0] API: fetched content for", validContents.length, "pages")
 
     // 3. Build focused subgraph
-    const graph = buildSubgraph(topPages, snap)
+    const graph = buildSubgraph(topPages.slice(0, Math.max(contentLimit, 6)), snap)
+
+    if (intentKey === "summarize" && validContents.length === 0) {
+      const answer = `I couldn't find a page to summarize for "${message}". Try using the exact page title or a more specific query.`
+      const response: VaultmindResponse = { answer, graph }
+      return NextResponse.json(response)
+    }
+
+    if (intentKey === "connect") {
+      const seedIds = new Set(topPages.slice(0, 6).map(p => p.id))
+      const answer = buildConnectionAnswer(message, graph, seedIds)
+      const response: VaultmindResponse = { answer, graph }
+      return NextResponse.json(response)
+    }
+
+    if (intentKey === "brief") {
+      const dateLabel = formatDateLabel(today)
+      const briefItems = extractBriefItems(validContents, dateTokens)
+      const answer = buildBriefAnswer(message, dateLabel, briefItems)
+      const response: VaultmindResponse = { answer, graph }
+      return NextResponse.json(response)
+    }
 
     // 4. Generate answer — try LLM first, fall back to deterministic synthesis
     const contextDocs = validContents
