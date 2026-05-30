@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: graphyne-postgres
+    environment:
+      POSTGRES_DB: graphyne
+      POSTGRES_USER: graphyne
+      POSTGRES_PASSWORD: graphyne
+    ports:
+      - "5432:5432"
+    volumes:
+      - graphyne-postgres:/var/lib/postgresql/data
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: graphyne-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/graphyne-password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - graphyne-neo4j:/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: graphyne-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - graphyne-redis:/data
+
+volumes:
+  graphyne-postgres:
+  graphyne-neo4j:
+  graphyne-redis:

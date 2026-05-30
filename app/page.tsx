@@ -28,12 +28,21 @@ const LOADING_STATUSES = [
 const SEED_HISTORY: ChatHistoryItem[] = []
 const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
 const CHAT_STORAGE_KEY = "graphyne.chat.v1"
+const WORKSPACE_STORAGE_KEY = "graphyne.workspace.v1"
+const WORKSPACE_CACHE_TTL = 5 * 60_000
+const REQUIRE_NOTION_LOGIN = process.env.NEXT_PUBLIC_REQUIRE_NOTION_LOGIN === "true"
 
 type StoredChatState = {
   history: ChatHistoryItem[]
   activeChatId: string | null
   draftMessages: ChatMessage[]
   draftTitle: string
+}
+
+type StoredWorkspaceState = {
+  graph: KnowledgeGraph | null
+  connected: boolean
+  fetchedAt: number
 }
 
 function stripGraph(messages: ChatMessage[]): ChatMessage[] {
@@ -63,6 +72,30 @@ function loadChatState(): StoredChatState | null {
 function saveChatState(state: StoredChatState) {
   if (typeof window === "undefined") return
   window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(state))
+}
+
+function loadWorkspaceState(): StoredWorkspaceState | null {
+  if (typeof window === "undefined") return null
+  const raw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredWorkspaceState>
+    if (!parsed || typeof parsed !== "object") return null
+    if (typeof parsed.fetchedAt !== "number") return null
+    if (Date.now() - parsed.fetchedAt > WORKSPACE_CACHE_TTL) return null
+    return {
+      graph: parsed.graph ?? null,
+      connected: Boolean(parsed.connected),
+      fetchedAt: parsed.fetchedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveWorkspaceState(state: StoredWorkspaceState) {
+  if (typeof window === "undefined") return
+  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(state))
 }
 
 type WalkthroughSurface = "main" | "sidebar" | "graph"
@@ -151,8 +184,8 @@ export default function GraphynePage() {
     connected: false,
   })
 
-  const reloadWorkspace = useCallback(async () => {
-    setWorkspace(prev => ({ ...prev, loading: true }))
+  const reloadWorkspace = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setWorkspace(prev => ({ ...prev, loading: true }))
     try {
       const res = await fetch("/api/vaultmind/workspace", {
         cache: "no-store",
@@ -160,10 +193,16 @@ export default function GraphynePage() {
       })
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = await res.json()
-      setWorkspace({
+      const next = {
         graph: data.graph,
         loading: false,
         connected: Boolean(data.connected),
+      }
+      setWorkspace(next)
+      saveWorkspaceState({
+        graph: data.graph,
+        connected: Boolean(data.connected),
+        fetchedAt: Date.now(),
       })
     } catch (err) {
       console.error("[v0] Failed to load workspace:", err)
@@ -172,10 +211,15 @@ export default function GraphynePage() {
   }, [])
 
   useEffect(() => {
-    void reloadWorkspace()
+    const cached = loadWorkspaceState()
+    if (cached) {
+      setWorkspace({ graph: cached.graph, loading: false, connected: cached.connected })
+    }
+    void reloadWorkspace({ silent: Boolean(cached) })
   }, [reloadWorkspace])
 
   useEffect(() => {
+    if (!REQUIRE_NOTION_LOGIN) return
     if (workspace.loading || workspace.connected) return
     window.location.replace("/login")
   }, [workspace.connected, workspace.loading])

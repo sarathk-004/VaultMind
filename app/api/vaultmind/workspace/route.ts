@@ -3,7 +3,9 @@ import { getWorkspaceSnapshot, snapshotToGraph } from "@/lib/notion-retriever"
 import { isNotionConnected } from "@/lib/notion-client"
 import { getRequestNotionToken } from "@/lib/notion-token"
 import { providerOptionsFromSettings } from "@/lib/llm-client"
-import { getRequestLlmSettings, hasUserLlmKey } from "@/lib/llm-settings"
+import { getRequestLlmSettings, hasAvailableLlmProvider } from "@/lib/llm-settings"
+import { getStackerConfig } from "@/lib/stacker/config"
+import { getStackerWorkspaceGraph, isStackerEnabled } from "@/lib/stacker/service"
 
 export async function GET() {
   try {
@@ -11,9 +13,12 @@ export async function GET() {
     const llmSettings = await getRequestLlmSettings()
     const snap = await getWorkspaceSnapshot(token, {
       ...providerOptionsFromSettings(llmSettings),
-      budgetMs: hasUserLlmKey(llmSettings) ? 12_000 : 2_500,
+      budgetMs: hasAvailableLlmProvider(llmSettings) ? 12_000 : 2_500,
     })
-    const graph = snapshotToGraph(snap)
+    const stackerConfig = getStackerConfig()
+    const graph = isStackerEnabled(stackerConfig)
+      ? await getStackerWorkspaceGraph({ snapshot: snap, token, config: stackerConfig })
+      : snapshotToGraph(snap)
     console.log(
       `[v0] Workspace endpoint: pages=${snap.pages.size}, edges=${snap.edges.length}, ` +
         `graph nodes=${graph.nodes.length}, graph edges=${graph.edges.length}, ` +

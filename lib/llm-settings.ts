@@ -97,6 +97,26 @@ export function hasUserLlmKey(settings: LlmSettings): boolean {
   return Boolean(settings.keys[settings.provider])
 }
 
+export function hasAvailableLlmProvider(settings: LlmSettings): boolean {
+  if (hasUserLlmKey(settings)) return true
+
+  const envKeys: Record<KeyedLlmProvider, string | undefined> = {
+    openai: process.env.OPENAI_API_KEY,
+    anthropic: process.env.ANTHROPIC_API_KEY,
+    gemini: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? process.env.GEMINI_API_KEY,
+    openrouter: process.env.OPENROUTER_API_KEY,
+    nim: process.env.NVIDIA_API_KEY ?? process.env.NIM_API_KEY,
+  }
+
+  if (settings.provider === "auto") {
+    return Object.values(envKeys).some(Boolean)
+  }
+
+  if (settings.provider === "ollama") return true
+
+  return Boolean(envKeys[settings.provider])
+}
+
 export function serializeSettingsCookie(settings: LlmSettings): string {
   return Buffer.from(JSON.stringify(settings), "utf8").toString("base64url")
 }

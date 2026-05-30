@@ -23,7 +23,7 @@
   --muted: oklch(0.94 0 0);
   --muted-foreground: oklch(0.48 0 0);
 
-  --accent: #CECBF6;
+  --accent: #C1B8F3;
   --accent-foreground: #3F3A3A;
 
   --destructive: oklch(0.55 0.22 25);
@@ -39,7 +39,7 @@
   --sidebar-foreground: #3F3A3A;
   --sidebar-primary: #D9592A;
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: #CECBF6;
+  --sidebar-accent: #C1B8F3;
   --sidebar-accent-foreground: #3F3A3A;
   --sidebar-border: oklch(0.86 0 0);
   --sidebar-ring: #D9592A;
@@ -64,18 +64,18 @@
 
 .dark {
   --background: oklch(0.16 0 0);
-  --foreground: oklch(0.96 0 0);
+  --foreground: oklch(0.99 0 0);
   --card: oklch(0.19 0 0);
-  --card-foreground: oklch(0.96 0 0);
+  --card-foreground: oklch(0.99 0 0);
   --popover: oklch(0.19 0 0);
-  --popover-foreground: oklch(0.96 0 0);
+  --popover-foreground: oklch(0.99 0 0);
   --primary: #D9592A;
   --primary-foreground: oklch(0.98 0 0);
   --secondary: oklch(0.22 0 0);
-  --secondary-foreground: oklch(0.96 0 0);
+  --secondary-foreground: oklch(0.99 0 0);
   --muted: oklch(0.22 0 0);
   --muted-foreground: oklch(0.64 0 0);
-  --accent: #CECBF6;
+  --accent: #C1B8F3;
   --accent-foreground: #3F3A3A;
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(0.98 0 0);
@@ -83,11 +83,11 @@
   --input: oklch(0.24 0 0);
   --ring: #D9592A;
   --sidebar: oklch(0.18 0 0);
-  --sidebar-foreground: oklch(0.96 0 0);
+  --sidebar-foreground: oklch(0.99 0 0);
   --sidebar-primary: #D9592A;
   --sidebar-primary-foreground: oklch(0.98 0 0);
   --sidebar-accent: oklch(0.22 0 0);
-  --sidebar-accent-foreground: oklch(0.96 0 0);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
   --sidebar-border: oklch(0.26 0 0);
   --sidebar-ring: #D9592A;
   --node-page: #7764e6;
@@ -162,7 +162,7 @@
   background-image:
     linear-gradient(to right, color-mix(in oklab, var(--border) 65%, transparent) 1px, transparent 1px),
     linear-gradient(to bottom, color-mix(in oklab, var(--border) 65%, transparent) 1px, transparent 1px);
-  background-size: 60px 60px;
+  background-size: 24px 24px;
 }
 
 @keyframes vm-bounce {

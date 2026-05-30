@@ -733,12 +733,7 @@ export async function fetchPageContent(
   }
 
   try {
-    const snap = await getWorkspaceSnapshot(token)
-    if (snap.usingMock) {
-      return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
-    }
-
-    const meta = snap.pages.get(cleanId) ?? snap.pages.get(pageId)
+    const meta = await fetchNotionMeta(cleanId, token)
     if (!meta) return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
 
     if (meta.type === "database") {
@@ -778,6 +773,35 @@ export async function fetchPageContent(
   } catch (err) {
     console.error(`[v0] Failed to fetch page ${cleanId}:`, err)
     return NOTE_CONTENT[cleanId] ?? NOTE_CONTENT[pageId] ?? null
+  }
+}
+
+async function fetchNotionMeta(
+  cleanId: string,
+  token?: string | null,
+): Promise<NotionPageMeta | null> {
+  try {
+    const page = await notionFetch<NotionPage>(`/pages/${cleanId}`, undefined, token)
+    return {
+      id: cleanId,
+      title: getPageTitle(page),
+      type: guessPageType(page),
+      url: page.url,
+    }
+  } catch {
+    // fallthrough to database lookup
+  }
+
+  try {
+    const db = await notionFetch<NotionDatabase>(`/databases/${cleanId}`, undefined, token)
+    return {
+      id: cleanId,
+      title: getDatabaseTitle(db),
+      type: "database",
+      url: db.url,
+    }
+  } catch {
+    return null
   }
 }
 
@@ -845,16 +869,28 @@ async function fetchDatabaseMarkdown(
     if (!res.results.length) return ""
     const first = res.results[0]
     const propEntries = Object.entries(first.properties ?? {})
-    const columns = propEntries.map(([name]) => name).slice(0, 6)
+    // capture property types so we can render title columns as links
+    const columns = propEntries
+      .map(([name, val]) => ({ name, type: (val as any)?.type ?? "" }))
+      .slice(0, 6)
     if (columns.length === 0) return ""
 
-    const header = `| ${columns.join(" | ")} |`
+    const header = `| ${columns.map(c => c.name).join(" | ")} |`
     const sep = `| ${columns.map(() => "---").join(" | ")} |`
     const rows = res.results
       .map(page => {
         const cells = columns.map(col => {
-          const value = (page.properties ?? {})[col]
-          return propValueToString(value).slice(0, 80) || " "
+          const value = (page.properties ?? {})[col.name]
+          let text = propValueToString(value) || " "
+          // Render title columns as markdown links back to the Notion page when possible
+          if (col.type === "title") {
+            const titleText = text || "Untitled"
+            const url = (page as any).url
+            if (url) return `[${titleText}](${url})`
+            return titleText
+          }
+          // Keep cells reasonably bounded so long tables don't explode the view
+          return text.length > 300 ? text.slice(0, 300) + "…" : text
         })
         return `| ${cells.join(" | ")} |`
       })

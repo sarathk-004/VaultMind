@@ -127,9 +127,9 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
           <div
             className={`rounded-md border p-3 text-xs ${
               isConnected
-                ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-200"
+                ? "border-emerald-500/30 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/5 dark:text-emerald-200"
                 : status?.hasKey
-                  ? "border-amber-500/30 bg-amber-500/5 text-amber-200"
+                  ? "border-amber-500/30 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/5 dark:text-amber-200"
                   : "border-border bg-card text-muted-foreground"
             }`}
           >
@@ -176,11 +176,11 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
           <div className="flex items-center justify-between gap-2 pt-1">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={handleLogout}
               disabled={submitting || loggingOut || !hasOAuthConnection}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="text-xs text-foreground/80 hover:text-foreground"
             >
               {loggingOut ? (
                 <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
@@ -190,16 +190,6 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
               Log out
             </Button>
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => onOpenChange(false)}
-                disabled={submitting || loggingOut}
-                className="text-xs"
-              >
-                Close
-              </Button>
               <Button
                 type="button"
                 size="sm"

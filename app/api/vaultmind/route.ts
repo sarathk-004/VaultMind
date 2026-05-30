@@ -9,7 +9,9 @@ import {
 } from "@/lib/notion-retriever"
 import { getRequestNotionToken } from "@/lib/notion-token"
 import { generateStructured, providerOptionsFromSettings } from "@/lib/llm-client"
-import { getRequestLlmSettings, hasUserLlmKey } from "@/lib/llm-settings"
+import { getRequestLlmSettings, hasAvailableLlmProvider, hasUserLlmKey } from "@/lib/llm-settings"
+import { getStackerConfig } from "@/lib/stacker/config"
+import { isStackerEnabled, retrieveWithStacker } from "@/lib/stacker/service"
 
 const INTENT_INSTRUCTIONS: Record<Intent, string> = {
   search:
@@ -30,6 +32,19 @@ const MONTHS_SHORT = [
   "Jan","Feb","Mar","Apr","May","Jun",
   "Jul","Aug","Sep","Oct","Nov","Dec",
 ]
+
+const AnswerResponse = z.preprocess(value => {
+  if (typeof value === "string") return { answer: value }
+  if (Array.isArray(value)) {
+    return value.find(item => item && typeof item === "object" && "answer" in item) ?? value[0]
+  }
+  if (value && typeof value === "object" && !("answer" in value)) {
+    const obj = value as Record<string, unknown>
+    const fallback = obj.response ?? obj.content ?? obj.text ?? obj.summary ?? obj.result
+    if (typeof fallback === "string") return { ...obj, answer: fallback }
+  }
+  return value
+}, z.object({ answer: z.string().min(1) }))
 
 function pad2(value: number): string {
   return value.toString().padStart(2, "0")
@@ -540,6 +555,7 @@ export async function POST(req: NextRequest) {
     const token = await getRequestNotionToken()
     const llmSettings = await getRequestLlmSettings()
     const userLlmConfigured = hasUserLlmKey(llmSettings)
+    const llmConfigured = hasAvailableLlmProvider(llmSettings)
     console.log(
       "[v0] API: intent=",
       intentKey,
@@ -550,13 +566,13 @@ export async function POST(req: NextRequest) {
       "llmProvider=",
       llmSettings.provider,
       "llmKeySource=",
-      userLlmConfigured ? "user-cookie/local" : "env-or-none",
+      userLlmConfigured ? "user-cookie/local" : llmConfigured ? "env" : "none",
     )
 
     // 1. Retrieve workspace and rank relevant pages
     const snap = await getWorkspaceSnapshot(token, {
       ...providerOptionsFromSettings(llmSettings),
-      budgetMs: userLlmConfigured ? 12_000 : 2_500,
+      budgetMs: llmConfigured ? 12_000 : 2_500,
     })
     console.log(
       `[v0] API: snapshot has ${snap.pages.size} pages, ${snap.edges.length} edges, usingMock=${snap.usingMock}`,
@@ -567,7 +583,58 @@ export async function POST(req: NextRequest) {
       ? `${message} ${dateTokens.join(" ")}`.trim()
       : message
 
-    const topPages = await rankPages(rankingQuery, snap, token)
+    const contentLimit = intentKey === "summarize"
+      ? 1
+      : intentKey === "brief"
+        ? 8
+        : intentKey === "search"
+          ? 3
+          : 0
+
+    const stackerConfig = getStackerConfig()
+    let topPages = await rankPages(rankingQuery, snap, token)
+    let validContents: Array<NonNullable<Awaited<ReturnType<typeof fetchPageContent>>>> = []
+    let graph = buildSubgraph(topPages.slice(0, Math.max(contentLimit, 6)), snap)
+
+    if (isStackerEnabled(stackerConfig)) {
+      const stackerContext = await retrieveWithStacker({
+        query: rankingQuery,
+        intent: intentKey,
+        snapshot: snap,
+        token,
+        contentLimit,
+        config: stackerConfig,
+      })
+      validContents = stackerContext.documents
+        .slice(0, Math.max(contentLimit, 1))
+        .map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          type: doc.type === "database" || doc.type === "task" || doc.type === "note" ? doc.type : "page",
+          content: doc.content,
+          relatedNodes: [],
+          url: doc.url,
+        }))
+      graph = stackerContext.graph
+      const hitIds = new Set(stackerContext.hits.map(hit => hit.documentId))
+      topPages = [
+        ...topPages.filter(page => hitIds.has(page.id)),
+        ...topPages.filter(page => !hitIds.has(page.id)),
+      ]
+      console.log(
+        `[stacker] retrieval docs=${stackerContext.stats.documentCount} ` +
+          `chunks=${stackerContext.stats.chunkCount} hits=${stackerContext.stats.hitCount} ` +
+          `store=${stackerContext.stats.store} graph=${stackerContext.stats.graph} ` +
+          `vector=${stackerContext.stats.vector} cache=${stackerContext.stats.cache}`,
+      )
+    } else {
+      // 2. Fetch content for the top pages (intent-specific)
+      const contents = await Promise.all(
+        topPages.slice(0, contentLimit).map(p => fetchPageContent(p.id, token)),
+      )
+      validContents = contents.filter((c): c is NonNullable<typeof c> => c !== null)
+    }
+
     console.log(
       "[v0] API: ranked",
       topPages.length,
@@ -577,24 +644,7 @@ export async function POST(req: NextRequest) {
         .map(p => p.title)
         .join(" | "),
     )
-
-    const contentLimit = intentKey === "summarize"
-      ? 1
-      : intentKey === "brief"
-        ? 8
-        : intentKey === "search"
-          ? 3
-          : 0
-
-    // 2. Fetch content for the top pages (intent-specific)
-    const contents = await Promise.all(
-      topPages.slice(0, contentLimit).map(p => fetchPageContent(p.id, token)),
-    )
-    const validContents = contents.filter((c): c is NonNullable<typeof c> => c !== null)
     console.log("[v0] API: fetched content for", validContents.length, "pages")
-
-    // 3. Build focused subgraph
-    const graph = buildSubgraph(topPages.slice(0, Math.max(contentLimit, 6)), snap)
 
     if (intentKey === "summarize" && validContents.length === 0) {
       const answer = `I couldn't find a page to summarize for "${message}". Try using the exact page title or a more specific query.`
@@ -621,10 +671,10 @@ export async function POST(req: NextRequest) {
 
     try {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), userLlmConfigured ? 18_000 : 2_500)
+      const timer = setTimeout(() => controller.abort(), llmConfigured ? 18_000 : 2_500)
       try {
         const result = await generateStructured({
-          schema: z.object({ answer: z.string() }),
+          schema: AnswerResponse,
           system: `You are Graphyne, an AI-powered Notion workspace assistant.
 
 **Current intent**: ${intentKey}
@@ -642,7 +692,10 @@ ${contextDocs.length > 0 ? contextDocs : "_(No matching pages found in workspace
 Graph contains ${graph.nodes.length} nodes: ${graph.nodes.map(n => n.label).join(", ")}
 ${edgeSummary ? `\nTop graph edges:\n${edgeSummary}` : ""}
 
-Generate a helpful answer based on this context.`,
+Generate a helpful answer based on this context.
+
+Return JSON in exactly this shape:
+{ "answer": "markdown answer text" }`,
           signal: controller.signal,
           label: "answer generation",
           useCase: "answer",

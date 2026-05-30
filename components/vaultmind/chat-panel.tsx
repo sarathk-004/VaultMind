@@ -4,6 +4,7 @@ import { Menu, Network, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/vaultmind/confirm-dialog"
 import { ChatInput } from "./chat-input"
 import { ChatMessageBubble } from "./chat-message"
 import type { ChatMessage, Intent, KnowledgeGraph } from "@/lib/vaultmind-types"
@@ -52,9 +53,17 @@ export function ChatPanel(props: ChatPanelProps) {
     workspaceGraph,
   } = props
 
+  const [suggestionSeed] = useState(() => Math.random())
+
+  const suggestions = useMemo(
+    () => buildIntentSuggestions(intent, workspaceGraph, suggestionSeed),
+    [intent, workspaceGraph, suggestionSeed],
+  )
+
   const scrollRef = useRef<HTMLDivElement>(null)
   const [titleEditing, setTitleEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState(title)
+  const [clearDialogOpen, setClearDialogOpen] = useState(false)
 
   // Auto-scroll to bottom on new messages or loading state change
   useEffect(() => {
@@ -118,13 +127,13 @@ export function ChatPanel(props: ChatPanelProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
           <Button
             variant="ghost"
             size="sm"
-            onClick={onClear}
+            onClick={() => setClearDialogOpen(true)}
             disabled={messages.length === 0 && !loading}
-            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            className="h-8 gap-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
           >
             <Trash2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Clear</span>
@@ -146,7 +155,15 @@ export function ChatPanel(props: ChatPanelProps) {
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-3 sm:px-5 py-6 flex flex-col gap-6">
-          {messages.length === 0 && !loading && <EmptyChatState intent={intent} workspaceGraph={workspaceGraph} />}
+          {messages.length === 0 && !loading && (
+            <EmptyChatState
+              intent={intent}
+              suggestions={suggestions}
+              onSuggestionSelect={onInputChange}
+              suggestionSeed={suggestionSeed}
+              workspaceGraph={workspaceGraph}
+            />
+          )}
 
           {messages.map(msg => (
             <ChatMessageBubble
@@ -174,11 +191,36 @@ export function ChatPanel(props: ChatPanelProps) {
           loading={loading}
         />
       </div>
+
+      <ConfirmDialog
+        open={clearDialogOpen}
+        onOpenChange={setClearDialogOpen}
+        title="Clear conversation?"
+        description="This will remove all messages from the current chat. You cannot undo this action."
+        confirmLabel="Clear"
+        confirmVariant="destructive"
+        onConfirm={() => {
+          onClear()
+          setClearDialogOpen(false)
+        }}
+      />
     </section>
   )
 }
 
-function EmptyChatState({ intent, workspaceGraph }: { intent: Intent; workspaceGraph: KnowledgeGraph | null }) {
+function EmptyChatState({
+  intent,
+  suggestions,
+  onSuggestionSelect,
+  suggestionSeed,
+  workspaceGraph,
+}: {
+  intent: Intent
+  suggestions: string[]
+  onSuggestionSelect: (value: string) => void
+  suggestionSeed: number
+  workspaceGraph: KnowledgeGraph | null
+}) {
   const intentText: Record<Intent, string> = {
     search: "Search across pages, databases, and notes.",
     summarize: "Get instant summaries of any topic in your vault.",
@@ -186,7 +228,11 @@ function EmptyChatState({ intent, workspaceGraph }: { intent: Intent; workspaceG
     brief: "Get a daily brief of what matters now.",
   }
 
-  const prompts = useMemo(() => buildStarterPrompts(workspaceGraph), [workspaceGraph])
+  const fallbackPrompts = useMemo(
+    () => buildIntentSuggestions(intent, workspaceGraph, suggestionSeed),
+    [intent, workspaceGraph, suggestionSeed],
+  )
+  const prompts = suggestions.length > 0 ? suggestions : fallbackPrompts
 
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 sm:py-16">
@@ -195,44 +241,185 @@ function EmptyChatState({ intent, workspaceGraph }: { intent: Intent; workspaceG
       <p className="text-sm text-muted-foreground mt-1.5 max-w-md text-balance px-4">
         {intentText[intent]} Graphyne queries your Notion vault via MCP and visualizes connections live.
       </p>
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2 max-w-md w-full px-4 text-left">
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full px-4">
         {prompts.map(p => (
-          <div
+          <Button
             key={p}
-            className="flex gap-2 text-xs leading-relaxed text-muted-foreground"
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onSuggestionSelect(p)}
+            className="w-full justify-start text-xs truncate"
+            title={p}
           >
-            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/45" aria-hidden />
-            <span>{p}</span>
-          </div>
+            {p}
+          </Button>
         ))}
       </div>
     </div>
   )
 }
 
-const SAMPLE_PROMPTS = [
-  "Summarize Q1 roadmap progress",
-  "Connect customer feedback to features",
-  "What's blocking the 2.4 release?",
-  "Brief me on this week's priorities",
-]
+const INTENT_FALLBACKS: Record<Intent, string[]> = {
+  search: [
+    "Search the Q1 roadmap",
+    "Find mentions of launch blockers",
+    "Search recent customer feedback",
+  ],
+  summarize: [
+    "Summarize Q1 roadmap progress",
+    "Summarize this week's priorities",
+    "Key takeaways from recent updates",
+  ],
+  connect: [
+    "Connect customer feedback to features",
+    "Find shared topics across initiatives",
+    "How are roadmap items related?",
+  ],
+  brief: [
+    "Brief me on this week's priorities",
+    "What matters most today?",
+    "Daily brief for the release",
+  ],
+}
 
-function buildStarterPrompts(workspaceGraph: KnowledgeGraph | null): string[] {
+function buildIntentSuggestions(
+  intent: Intent,
+  workspaceGraph: KnowledgeGraph | null,
+  seed: number,
+): string[] {
   const nodes = workspaceGraph?.nodes ?? []
-  if (nodes.length < 2) return SAMPLE_PROMPTS
+  const intentSeed = mixSeed(seed, intent)
+  const labels = pickSuggestionLabels(nodes, 3, intentSeed, intent)
+  const [first, second, third] = labels
+  const fallback = shuffleWithSeed(INTENT_FALLBACKS[intent], intentSeed).slice(0, 3)
+  const limit = (text: string) => limitSuggestion(text, 52)
 
-  const labels = nodes
-    .map(node => node.label.trim())
-    .filter(Boolean)
-    .slice(0, 6)
+  switch (intent) {
+    case "search":
+      return [
+        limit(first ? `Search for ${first}` : fallback[0]),
+        limit(second ? `Find mentions of ${second}` : fallback[1]),
+        limit(third ? `Search for ${third} updates` : fallback[2]),
+      ]
+    case "summarize":
+      return [
+        limit(first ? `Summarize ${first}` : fallback[0]),
+        limit(second ? `Summarize updates to ${second}` : fallback[1]),
+        limit(third ? `Key takeaways for ${third}` : fallback[2]),
+      ]
+    case "connect":
+      return [
+        limit(first && second ? `Connect ${first} to ${second}` : fallback[0]),
+        limit(first ? `How is ${first} related to other pages?` : fallback[1]),
+        limit(third ? `Find shared topics with ${third}` : fallback[2]),
+      ]
+    case "brief":
+      return [
+        limit(first ? `Brief me on ${first}` : fallback[0]),
+        limit(second ? `What matters now about ${second}?` : fallback[1]),
+        limit(third ? `Daily brief for ${third}` : fallback[2]),
+      ]
+    default:
+      return fallback.map(limit)
+  }
+}
 
-  const [first, second, third, fourth] = labels
-  return [
-    first ? `Summarize ${first}` : SAMPLE_PROMPTS[0],
-    first && second ? `Connect ${first} to ${second}` : SAMPLE_PROMPTS[1],
-    third ? `What needs attention in ${third}?` : SAMPLE_PROMPTS[2],
-    fourth ? `Brief me on ${fourth}` : SAMPLE_PROMPTS[3],
-  ]
+function pickSuggestionLabels(
+  nodes: KnowledgeGraph["nodes"],
+  count: number,
+  seed: number,
+  intent: Intent,
+): string[] {
+  const rng = makeRng(seed)
+  const seen = new Set<string>()
+  const picks: string[] = []
+
+  const byType = new Map<string, string[]>()
+  for (const node of nodes) {
+    const label = node.label?.trim()
+    if (!label) continue
+    const type = node.type ?? "page"
+    const list = byType.get(type) ?? []
+    list.push(label)
+    byType.set(type, list)
+  }
+
+  const intentTypeOrder: Record<Intent, string[]> = {
+    search: ["database", "page", "note", "task"],
+    summarize: ["page", "note", "database", "task"],
+    connect: ["page", "database", "task", "note"],
+    brief: ["task", "page", "note", "database"],
+  }
+  const typeOrder = intentTypeOrder[intent]
+  for (const type of typeOrder) {
+    const list = shuffleWithRng(byType.get(type) ?? [], rng)
+    for (const label of list) {
+      if (picks.length >= count) break
+      if (seen.has(label)) continue
+      seen.add(label)
+      picks.push(label)
+      break
+    }
+    if (picks.length >= count) break
+  }
+
+  if (picks.length < count) {
+    const labels = shuffleWithRng(
+      nodes.map(node => node.label?.trim()).filter(Boolean) as string[],
+      rng,
+    )
+    for (const label of labels) {
+      if (picks.length >= count) break
+      if (!label || seen.has(label)) continue
+      seen.add(label)
+      picks.push(label)
+    }
+  }
+
+  return picks
+}
+
+function makeRng(seed: number) {
+  let t = Math.floor(seed * 1_000_000_000) || 1
+  return () => {
+    t += 0x6d2b79f5
+    let x = t
+    x = Math.imul(x ^ (x >>> 15), x | 1)
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61)
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function mixSeed(seed: number, intent: Intent): number {
+  const base = Math.floor(seed * 1_000_000_000) || 1
+  let h = base
+  for (let i = 0; i < intent.length; i++) {
+    h = (h * 31 + intent.charCodeAt(i)) | 0
+  }
+  return Math.abs(h % 1_000_000) / 1_000_000
+}
+
+function limitSuggestion(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  const trimmed = text.slice(0, maxLen - 1)
+  const lastSpace = trimmed.lastIndexOf(" ")
+  if (lastSpace > 20) return trimmed.slice(0, lastSpace) + "…"
+  return trimmed + "…"
+}
+
+function shuffleWithSeed<T>(items: T[], seed: number): T[] {
+  const rng = makeRng(seed)
+  return shuffleWithRng(items, rng)
+}
+
+function shuffleWithRng<T>(items: T[], rng: () => number): T[] {
+  const arr = items.slice()
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
 }
 
 function TypingIndicator({ status }: { status: string }) {

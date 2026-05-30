@@ -33,7 +33,9 @@ function richTextToMd(rt: RichTextItem[] | undefined, mentioned: Set<string>): s
         if (mention.type === "database" && mention.database?.id)
           mentioned.add(mention.database.id)
       }
-      return t.plain_text ?? ""
+      const text = t.plain_text ?? ""
+      if (t.href) return `[${text}](${t.href})`
+      return text
     })
     .join("")
 }
@@ -188,7 +190,10 @@ export function blocksToMarkdown(
       case "bookmark": {
         const url = data.external?.url ?? data.file?.url ?? data.url ?? ""
         const caption = richTextToMd(data.caption, mentioned)
-        if (url) lines.push(`[${caption || t}](${url})`)
+        if (url) {
+          if (t === "image") lines.push(`![${caption || "Image"}](${url})`)
+          else lines.push(`[${caption || t}](${url})`)
+        }
         break
       }
       case "equation":

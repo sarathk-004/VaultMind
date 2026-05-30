@@ -1,8 +1,10 @@
 "use client"
 
+import { useMemo, useState } from "react"
 import { MessageSquare, Plus, Settings, Plug, Trash2 } from "lucide-react"
 import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/vaultmind/confirm-dialog"
 import { cn } from "@/lib/utils"
 import type { ChatHistoryItem } from "@/lib/vaultmind-types"
 
@@ -30,6 +32,13 @@ export function Sidebar({
   workspaceLabel = "Notion Workspace",
   workspaceConnected = true,
 }: SidebarProps) {
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+
+  const deleteTarget = useMemo(
+    () => history.find(chat => chat.id === deleteTargetId) ?? null,
+    [deleteTargetId, history],
+  )
+
   return (
     <aside className="flex flex-col h-full w-full md:w-[260px] md:shrink-0 md:border-r border-border bg-sidebar">
       {/* Header */}
@@ -45,7 +54,7 @@ export function Sidebar({
         </div>
         <button
           onClick={onOpenConnect}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border hover:bg-accent/35 transition-colors"
+          className="group w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-card border border-border hover:bg-accent/35 transition-colors"
         >
           <span
             className={cn(
@@ -62,7 +71,10 @@ export function Sidebar({
               {workspaceConnected ? "Live · click to manage" : "Click to connect"}
             </span>
           </div>
-          <Plug className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" aria-hidden />
+          <Plug
+            className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground ml-auto shrink-0"
+            aria-hidden
+          />
         </button>
       </div>
 
@@ -73,13 +85,14 @@ export function Sidebar({
             Chat History
           </span>
           <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 hover:bg-accent/40 hover:text-foreground"
-            aria-label="New chat"
+            variant="outline"
+            size="sm"
             onClick={onNewChat}
+            className="h-8 px-3 text-xs"
+            aria-label="New chat"
           >
             <Plus className="h-3.5 w-3.5" />
+            <span className="ml-1">New chat</span>
           </Button>
         </div>
 
@@ -97,7 +110,7 @@ export function Sidebar({
                     <button
                       onClick={() => onSelectChat(chat.id)}
                       className={cn(
-                        "w-full text-left px-2.5 py-2 rounded-md transition-colors",
+                        "group w-full text-left px-2.5 py-2 rounded-md transition-colors",
                         active
                           ? "bg-accent text-accent-foreground dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
                           : "hover:bg-accent/40 text-foreground/90",
@@ -107,7 +120,9 @@ export function Sidebar({
                         <MessageSquare
                           className={cn(
                             "h-3 w-3 shrink-0",
-                            active ? "text-primary dark:text-sidebar-foreground" : "text-muted-foreground",
+                            active
+                              ? "text-primary dark:text-sidebar-foreground"
+                              : "text-muted-foreground group-hover:text-foreground",
                           )}
                           aria-hidden
                         />
@@ -122,9 +137,9 @@ export function Sidebar({
                       aria-label={`Delete ${chat.title}`}
                       onClick={event => {
                         event.stopPropagation()
-                        onDeleteChat(chat.id)
+                        setDeleteTargetId(chat.id)
                       }}
-                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground/70 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                      className="absolute right-2 top-2 rounded-sm p-1 text-red-600 dark:text-red-400 opacity-0 transition-opacity hover:text-red-700 dark:hover:text-red-300 group-hover:opacity-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden />
                     </button>
@@ -138,15 +153,7 @@ export function Sidebar({
 
       {/* Footer */}
       <div className="border-t border-border p-3 flex items-center gap-2 shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onNewChat}
-          className="flex-1 h-8 text-xs justify-start gap-2 bg-transparent hover:bg-accent/35 hover:text-foreground"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New chat
-        </Button>
+        <div className="flex-1" />
         <Button
           variant="ghost"
           size="icon"
@@ -168,6 +175,25 @@ export function Sidebar({
           <Settings className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={open => {
+          if (!open) setDeleteTargetId(null)
+        }}
+        title="Delete conversation?"
+        description={
+          deleteTarget
+            ? `Delete "${deleteTarget.title}"? This cannot be undone.`
+            : "Delete this conversation? This cannot be undone."
+        }
+        confirmLabel="Delete"
+        confirmVariant="destructive"
+        onConfirm={() => {
+          if (deleteTarget) onDeleteChat(deleteTarget.id)
+          setDeleteTargetId(null)
+        }}
+      />
     </aside>
   )
 }

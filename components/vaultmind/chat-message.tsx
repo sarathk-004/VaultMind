@@ -34,6 +34,7 @@ function renderMarkdown(text: string): React.ReactNode {
       .replace(/^\||\|$/g, "")
       .split("|")
       .map(c => c.trim())
+  const isImageLine = (l: string) => /^!\[[^\]]*\]\([^\)]+\)\s*$/.test(l)
 
   while (i < lines.length) {
     const line = lines[i]
@@ -48,6 +49,30 @@ function renderMarkdown(text: string): React.ReactNode {
     // Horizontal rule
     if (trimmed === "---") {
       blocks.push(<hr key={key++} className="my-3 border-border/60" />)
+      i++
+      continue
+    }
+
+    // Image block
+    if (isImageLine(trimmed)) {
+      const match = trimmed.match(/^!\[([^\]]*)\]\(([^\)]+)\)\s*$/)
+      if (match) {
+        const [, alt, src] = match
+        blocks.push(
+          <figure key={key++} className="my-3">
+            <img
+              src={src}
+              alt={alt || "Notion image"}
+              className="w-full rounded-md border border-border"
+            />
+            {alt && (
+              <figcaption className="mt-2 text-[11px] text-muted-foreground">
+                {alt}
+              </figcaption>
+            )}
+          </figure>,
+        )
+      }
       i++
       continue
     }
@@ -110,7 +135,7 @@ function renderMarkdown(text: string): React.ReactNode {
       continue
     }
 
-    // Table
+    // Table (with header + separator)
     if (isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
       const header = splitRow(trimmed)
       i += 2
@@ -137,6 +162,42 @@ function renderMarkdown(text: string): React.ReactNode {
                 ))}
               </tr>
             </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr
+                  key={ri}
+                  className={ri % 2 === 0 ? "bg-transparent" : "bg-muted/20"}
+                >
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      className="px-2.5 py-1.5 text-foreground/85 align-top border-t border-border/50"
+                    >
+                      {parseInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      )
+      continue
+    }
+
+    // Table (no header separator)
+    if (isTableRow(trimmed) && i + 1 < lines.length && isTableRow(lines[i + 1].trim())) {
+      const rows: string[][] = []
+      while (i < lines.length && isTableRow(lines[i].trim())) {
+        rows.push(splitRow(lines[i].trim()))
+        i++
+      }
+      blocks.push(
+        <div
+          key={key++}
+          className="my-2 overflow-x-auto rounded-md border border-border"
+        >
+          <table className="w-full text-[12px] border-collapse">
             <tbody>
               {rows.map((row, ri) => (
                 <tr
@@ -278,9 +339,13 @@ function renderMarkdown(text: string): React.ReactNode {
   return blocks
 }
 
+function isImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|tiff|avif)(\?.*)?$/i.test(url)
+}
+
 function parseInline(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = []
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|_[^_]+_)/g
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|_[^_]+_|\[[^\]]+\]\([^\)]+\))/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   let key = 0
@@ -296,6 +361,36 @@ function parseInline(text: string): React.ReactNode[] {
           {token.slice(2, -2)}
         </strong>,
       )
+    } else if (token.startsWith("[")) {
+      const linkMatch = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/)
+      if (linkMatch) {
+        const [, label, href] = linkMatch
+        if (isImageUrl(href)) {
+          parts.push(
+            <img
+              key={key++}
+              src={href}
+              alt={label || "Notion image"}
+              className="inline-block max-w-full rounded-md border border-border"
+              loading="lazy"
+            />,
+          )
+        } else {
+          parts.push(
+            <a
+              key={key++}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline underline-offset-4"
+            >
+              {label}
+            </a>,
+          )
+        }
+      } else {
+        parts.push(token)
+      }
     } else if (token.startsWith("`")) {
       parts.push(
         <code
@@ -339,7 +434,7 @@ export function ChatMessageBubble({
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5 text-sm leading-relaxed">
+        <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-accent text-accent-foreground px-4 py-2.5 text-sm leading-relaxed">
           {message.content}
         </div>
       </div>

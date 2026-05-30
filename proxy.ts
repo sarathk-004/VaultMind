@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { NOTION_TOKEN_COOKIE } from "@/lib/notion-constants"
 
 const LOGIN_PATH = "/login"
+const REQUIRE_NOTION_LOGIN = process.env.NEXT_PUBLIC_REQUIRE_NOTION_LOGIN === "true"
 
 function hasNotionToken(req: NextRequest): boolean {
   const value = req.cookies.get(NOTION_TOKEN_COOKIE)?.value
@@ -9,6 +10,7 @@ function hasNotionToken(req: NextRequest): boolean {
 }
 
 export function proxy(req: NextRequest) {
+  if (!REQUIRE_NOTION_LOGIN) return NextResponse.next()
   if (process.env.NODE_ENV !== "production") return NextResponse.next()
 
   const { pathname, search } = req.nextUrl
