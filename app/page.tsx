@@ -30,7 +30,7 @@ const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
 const CHAT_STORAGE_KEY = "graphyne.chat.v1"
 const WORKSPACE_STORAGE_KEY = "graphyne.workspace.v1"
 const WORKSPACE_CACHE_TTL = 5 * 60_000
-const REQUIRE_NOTION_LOGIN = process.env.NEXT_PUBLIC_REQUIRE_NOTION_LOGIN === "true"
+const REQUIRE_NOTION_LOGIN = true
 
 type StoredChatState = {
   history: ChatHistoryItem[]
