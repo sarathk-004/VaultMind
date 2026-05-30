@@ -602,32 +602,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(response)
     }
 
-    if (intentKey === "summarize") {
-      const top = validContents[0]
-      const answer = buildSummaryAnswer(top.title, top.content)
-      const response: VaultmindResponse = { answer, graph }
-      return NextResponse.json(response)
-    }
-
-    if (intentKey === "connect") {
-      const seedIds = new Set(topPages.slice(0, 6).map(p => p.id))
-      const answer = buildConnectionAnswer(message, graph, seedIds)
-      const response: VaultmindResponse = { answer, graph }
-      return NextResponse.json(response)
-    }
-
-    if (intentKey === "brief") {
-      const dateLabel = formatDateLabel(today)
-      const briefItems = extractBriefItems(validContents, dateTokens)
-      const answer = buildBriefAnswer(message, dateLabel, briefItems)
-      const response: VaultmindResponse = { answer, graph }
-      return NextResponse.json(response)
-    }
-
     // 4. Generate answer — try LLM first, fall back to deterministic synthesis
     const contextDocs = validContents
       .map(c => `### ${c.title}\n${c.content}`)
       .join("\n\n")
+
+    const nodeLabelById = new Map(graph.nodes.map(n => [n.id, n.label]))
+    const edgeSummary = graph.edges
+      .slice(0, 24)
+      .map(edge => {
+        const from = nodeLabelById.get(edge.from) ?? edge.from
+        const to = nodeLabelById.get(edge.to) ?? edge.to
+        return `- ${from} ${edge.relation ?? "linked to"} ${to}`
+      })
+      .join("\n")
 
     let answer: string
 
@@ -652,6 +640,7 @@ Retrieved context:
 ${contextDocs.length > 0 ? contextDocs : "_(No matching pages found in workspace)_"}
 
 Graph contains ${graph.nodes.length} nodes: ${graph.nodes.map(n => n.label).join(", ")}
+${edgeSummary ? `\nTop graph edges:\n${edgeSummary}` : ""}
 
 Generate a helpful answer based on this context.`,
           signal: controller.signal,
@@ -668,7 +657,18 @@ Generate a helpful answer based on this context.`,
         "[v0] LLM unavailable, using deterministic synthesis:",
         llmErr instanceof Error ? llmErr.message : llmErr,
       )
-      answer = synthesizeAnswer(message, intentKey, validContents, graph)
+      if (intentKey === "summarize" && validContents[0]) {
+        answer = buildSummaryAnswer(validContents[0].title, validContents[0].content)
+      } else if (intentKey === "connect") {
+        const seedIds = new Set(topPages.slice(0, 6).map(p => p.id))
+        answer = buildConnectionAnswer(message, graph, seedIds)
+      } else if (intentKey === "brief") {
+        const dateLabel = formatDateLabel(today)
+        const briefItems = extractBriefItems(validContents, dateTokens)
+        answer = buildBriefAnswer(message, dateLabel, briefItems)
+      } else {
+        answer = synthesizeAnswer(message, intentKey, validContents, graph)
+      }
     }
 
     const response: VaultmindResponse = { answer, graph }

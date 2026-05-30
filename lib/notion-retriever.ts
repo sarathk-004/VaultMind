@@ -53,6 +53,17 @@ const PAGE_CACHE_TTL = 10 * 60_000
 const snapshotByToken = new Map<string, CachedSnapshot>()
 const pageCacheByToken = new Map<string, Map<string, CachedPageContent>>()
 
+function llmKeyFingerprint(keys?: Partial<Record<KeyedLlmProvider, string | null>>): string {
+  if (!keys) return "nokey"
+  const providers = Object.entries(keys)
+    .filter((entry): entry is [KeyedLlmProvider, string | null] =>
+      typeof entry[1] === "string" && entry[1].trim().length > 0,
+    )
+    .map(([provider]) => provider)
+    .sort()
+  return providers.length > 0 ? providers.join(",") : "nokey"
+}
+
 function getPageCache(key: string): Map<string, CachedPageContent> {
   let m = pageCacheByToken.get(key)
   if (!m) {
@@ -120,7 +131,7 @@ export async function getWorkspaceSnapshot(
   token?: string | null,
   llm?: WorkspaceLlmOptions,
 ): Promise<CachedSnapshot> {
-  const key = `${tokenKey(token)}:${llm?.providerOverride ?? "auto"}:${llm?.modelOverride ?? ""}`
+  const key = `${tokenKey(token)}:${llm?.providerOverride ?? "auto"}:${llm?.modelOverride ?? ""}:${llmKeyFingerprint(llm?.keys)}`
 
   if (!isNotionConnected(token)) {
     console.log("[v0] No Notion token — using local mock workspace")
