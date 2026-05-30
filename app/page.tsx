@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/vaultmind/sidebar"
 import { ChatPanel } from "@/components/vaultmind/chat-panel"
 import { KnowledgeGraphPanel } from "@/components/vaultmind/knowledge-graph"
@@ -177,6 +178,8 @@ interface WorkspaceState {
 
 export default function GraphynePage() {
   const isMobile = useIsMobile()
+  const searchParams = useSearchParams()
+  const oauthConnected = searchParams.get("notion") === "connected"
   // ── Workspace snapshot (fetched on mount via /api/vaultmind/workspace) ────
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     graph: null,
@@ -212,11 +215,22 @@ export default function GraphynePage() {
 
   useEffect(() => {
     const cached = loadWorkspaceState()
-    if (cached) {
+    const canUseCache = cached && (!REQUIRE_NOTION_LOGIN || cached.connected)
+    if (canUseCache && cached) {
       setWorkspace({ graph: cached.graph, loading: false, connected: cached.connected })
     }
-    void reloadWorkspace({ silent: Boolean(cached) })
+    void reloadWorkspace({ silent: Boolean(canUseCache) })
   }, [reloadWorkspace])
+
+  useEffect(() => {
+    if (!oauthConnected) return
+    try {
+      window.localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+    } catch {
+      // Ignore cache removal failures.
+    }
+    void reloadWorkspace()
+  }, [oauthConnected, reloadWorkspace])
 
   useEffect(() => {
     if (!REQUIRE_NOTION_LOGIN) return
