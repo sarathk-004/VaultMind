@@ -26,7 +26,7 @@ export async function GET() {
     )
     return NextResponse.json({
       graph,
-      connected: isNotionConnected(token) && !snap.usingMock,
+      connected: isNotionConnected(token),
       fetchedAt: snap.fetchedAt,
     })
   } catch (error) {
