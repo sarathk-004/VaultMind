@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/vaultmind/sidebar"
 import { ChatPanel } from "@/components/vaultmind/chat-panel"
@@ -176,7 +176,7 @@ interface WorkspaceState {
   connected: boolean
 }
 
-export default function GraphynePage() {
+function GraphynePage() {
   const isMobile = useIsMobile()
   const searchParams = useSearchParams()
   const oauthConnected = searchParams.get("notion") === "connected"
@@ -694,6 +694,14 @@ export default function GraphynePage() {
         onSurfaceChange={handleWalkthroughSurfaceChange}
       />
     </main>
+  )
+}
+
+export default function GraphynePageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex h-[100dvh] w-screen items-center justify-center bg-background text-foreground">Loading…</div>}>
+      <GraphynePage />
+    </Suspense>
   )
 }
 
