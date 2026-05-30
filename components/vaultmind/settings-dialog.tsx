@@ -143,7 +143,7 @@ export function SettingsDialog({
     if (!open) return
     let cancelled = false
     setStatus(null)
-    fetch("/api/vaultmind/llm-settings", { cache: "no-store" })
+    fetch("/api/vaultmind/llm-settings", { cache: "no-store", credentials: "include" })
       .then(res => res.json())
       .then((data: PublicLlmSettings) => {
         if (cancelled) return
@@ -195,6 +195,7 @@ export function SettingsDialog({
       const res = await fetch("/api/vaultmind/llm-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ provider, model, keys }),
       })
       if (!res.ok) throw new Error(`Status ${res.status}`)

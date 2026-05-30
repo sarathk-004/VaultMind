@@ -154,7 +154,10 @@ export default function GraphynePage() {
   const reloadWorkspace = useCallback(async () => {
     setWorkspace(prev => ({ ...prev, loading: true }))
     try {
-      const res = await fetch("/api/vaultmind/workspace", { cache: "no-store" })
+      const res = await fetch("/api/vaultmind/workspace", {
+        cache: "no-store",
+        credentials: "include",
+      })
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = await res.json()
       setWorkspace({
@@ -354,6 +357,7 @@ export default function GraphynePage() {
       const res = await fetch("/api/vaultmind", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ message: trimmed, intent }),
       })
       if (!res.ok) throw new Error(`API error: ${res.status}`)
