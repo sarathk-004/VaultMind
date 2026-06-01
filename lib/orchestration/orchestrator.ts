@@ -7,6 +7,11 @@ import { mergeDocuments, mergeHits, selectGraph } from "./fusion"
 import { planQuery } from "./planner"
 import type { OrchestrationDocument, OrchestrationResult } from "./types"
 
+const EXACT_TITLE_STOPWORDS = new Set([
+  "the","a","an","and","or","of","to","in","on","for","with","show","find","search","give",
+  "please","about","my","me","i","do","does","can","could","would","tell",
+])
+
 interface OrchestrateOptions {
   query: string
   intent: Intent
@@ -24,6 +29,7 @@ export async function orchestrateQuery(options: OrchestrateOptions): Promise<Orc
   })
 
   const rankedPages = await rankPages(options.query, options.snapshot, options.token)
+  const exactIds = findExactTitlePageIds(options.query, options.snapshot)
   const topPages = rankedPages.slice(0, Math.max(options.contentLimit, 6))
   const fallbackGraph = buildSubgraph(topPages, options.snapshot)
 
@@ -57,13 +63,15 @@ export async function orchestrateQuery(options: OrchestrateOptions): Promise<Orc
       config: options.config,
       workspaceId: options.workspaceId,
     })
-    stackerDocs = stackerContext.documents.map(doc => ({
-      id: doc.id,
-      title: doc.title,
-      type: doc.type,
-      content: doc.content,
-      url: doc.url,
-    }))
+    stackerDocs = stackerContext.documents
+      .filter(doc => exactIds.size === 0 || exactIds.has(doc.id.replace(/-/g, "")))
+      .map(doc => ({
+        id: doc.id,
+        title: doc.title,
+        type: doc.type,
+        content: doc.content,
+        url: doc.url,
+      }))
     stackerGraph = stackerContext.graph
     stackerHits = stackerContext.hits
   }
@@ -91,4 +99,22 @@ export async function orchestrateQuery(options: OrchestrateOptions): Promise<Orc
       type: page.type,
     })),
   }
+}
+
+function findExactTitlePageIds(query: string, snapshot: CachedSnapshot): Set<string> {
+  const qTokens = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(token => token.length >= 2 && !EXACT_TITLE_STOPWORDS.has(token))
+  if (qTokens.length < 2) return new Set()
+
+  const ids = new Set<string>()
+  for (const page of snapshot.pages.values()) {
+    const title = page.title.toLowerCase().replace(/[^a-z0-9\s]/g, " ")
+    if (qTokens.every(token => new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(title))) {
+      ids.add(page.id.replace(/-/g, ""))
+    }
+  }
+  return ids
 }

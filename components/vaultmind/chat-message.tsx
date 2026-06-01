@@ -29,12 +29,9 @@ function renderMarkdown(text: string): React.ReactNode {
     /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(l)
   const isTableRow = (l: string) => /^\s*\|.*\|\s*$/.test(l)
   const splitRow = (l: string) =>
-    l
-      .trim()
-      .replace(/^\||\|$/g, "")
-      .split("|")
-      .map(c => c.trim())
+    splitMarkdownTableRow(l)
   const isImageLine = (l: string) => /^!\[[^\]]*\]\([^\)]+\)\s*$/.test(l)
+  const isCalloutLine = (l: string) => /^\s*(?:\[!(?:note|tip|info|warning|important|quote)\]|(?:note|tip|info|warning|important):)\s+/i.test(l)
 
   while (i < lines.length) {
     const line = lines[i]
@@ -222,16 +219,27 @@ function renderMarkdown(text: string): React.ReactNode {
     }
 
     // Blockquote
-    if (trimmed.startsWith("> ")) {
+    if (trimmed.startsWith("> ") || isCalloutLine(trimmed)) {
       const quoteLines: string[] = []
-      while (i < lines.length && lines[i].trim().startsWith("> ")) {
-        quoteLines.push(lines[i].trim().slice(2))
+      const callout = isCalloutLine(trimmed)
+      if (callout) {
+        quoteLines.push(trimmed.replace(/^\s*(?:\[!([^\]]+)\]|([^:]+):)\s+/i, (_, a, b) => `${a ?? b}: `))
         i++
+      } else {
+        while (i < lines.length && lines[i].trim().startsWith("> ")) {
+          quoteLines.push(lines[i].trim().slice(2))
+          i++
+        }
       }
       blocks.push(
         <blockquote
           key={key++}
-          className="my-2 border-l-2 border-primary/40 pl-2.5 text-sm leading-relaxed text-foreground/70 italic"
+          className={cn(
+            "my-2 border-l-2 pl-2.5 text-sm leading-relaxed",
+            callout
+              ? "rounded-r-md border-primary/50 bg-muted/35 py-2 pr-2 text-foreground/85"
+              : "border-primary/40 text-foreground/70 italic",
+          )}
         >
           {quoteLines.map((q, qi) => (
             <span key={qi}>
@@ -337,6 +345,24 @@ function renderMarkdown(text: string): React.ReactNode {
   }
 
   return blocks
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\||\|$/g, "")
+  const cells: string[] = []
+  let current = ""
+  for (let index = 0; index < trimmed.length; index++) {
+    const char = trimmed[index]
+    const prev = trimmed[index - 1]
+    if (char === "|" && prev !== "\\") {
+      cells.push(current.replace(/\\\|/g, "|").trim())
+      current = ""
+    } else {
+      current += char
+    }
+  }
+  cells.push(current.replace(/\\\|/g, "|").trim())
+  return cells
 }
 
 function isImageUrl(url: string): boolean {
@@ -446,7 +472,7 @@ export function ChatMessageBubble({
       <BrandMark className="mt-0.5 h-7 w-7 shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="text-xs font-medium text-muted-foreground mb-1.5">Graphyne</div>
-        <div className="text-sm leading-relaxed text-foreground/95 whitespace-pre-wrap">
+        <div className="text-sm leading-relaxed text-foreground/95">
           {renderMarkdown(message.content)}
         </div>
 

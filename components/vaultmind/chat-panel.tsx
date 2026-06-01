@@ -133,7 +133,7 @@ export function ChatPanel(props: ChatPanelProps) {
             size="sm"
             onClick={() => setClearDialogOpen(true)}
             disabled={messages.length === 0 && !loading}
-            className="h-8 gap-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             <Trash2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Clear</span>
@@ -249,10 +249,10 @@ function EmptyChatState({
             variant="outline"
             size="sm"
             onClick={() => onSuggestionSelect(p)}
-            className="w-full justify-start text-xs truncate"
+            className="h-auto min-h-8 w-full justify-start whitespace-normal break-words px-3 py-2 text-left text-xs leading-snug"
             title={p}
           >
-            {p}
+            <span className="min-w-0">{p}</span>
           </Button>
         ))}
       </div>

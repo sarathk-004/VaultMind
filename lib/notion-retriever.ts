@@ -155,6 +155,7 @@ export async function getWorkspaceSnapshot(
       databases: 0,
       databaseRows: 0,
       blockChildren: 0,
+      nestedPages: 0,
       untitled: 0,
       kept: 0,
     }
@@ -187,8 +188,7 @@ export async function getWorkspaceSnapshot(
           continue
         }
         if (parentType === "block_id") {
-          stats.blockChildren++
-          continue
+          stats.nestedPages++
         }
         const title = getPageTitle(page).trim()
         if (!title || title.toLowerCase() === "untitled") {
@@ -209,7 +209,7 @@ export async function getWorkspaceSnapshot(
     console.log(
       `[v0] Notion filter stats: raw=${stats.raw} → kept=${stats.kept} ` +
         `(skipped: databases=${stats.databases}, dbRows=${stats.databaseRows}, ` +
-        `blockChildren=${stats.blockChildren}, untitled=${stats.untitled})`,
+        `blockChildren=${stats.blockChildren}, nestedPages=${stats.nestedPages}, untitled=${stats.untitled})`,
     )
 
     if (pages.size === 0) {
@@ -369,6 +369,18 @@ async function fetchPageReferences(
       collectMentionsFromBlock(block, ids)
       const t = extractBlockText(block)
       if (t) textParts.push(t)
+      if (block.has_children && shouldScanNestedReferences(block.type)) {
+        try {
+          const children = await fetchAllChildren(block.id, token)
+          for (const child of children) {
+            collectMentionsFromBlock(child, ids)
+            const childText = extractBlockText(child)
+            if (childText) textParts.push(childText)
+          }
+        } catch {
+          // Reference scanning is best-effort; full content fetch still expands these blocks.
+        }
+      }
     }
     const out = {
       ids: Array.from(ids).map(id => id.replace(/-/g, "")),
@@ -578,6 +590,15 @@ export async function rankPages(
 
   if (candidates.size === 0) return []
 
+  const exactTitleMatches = Array.from(candidates.values()).filter(meta =>
+    isStrongTitleMatch(query, qTokens, meta.title),
+  )
+  if (exactTitleMatches.length > 0) {
+    return exactTitleMatches
+      .sort((a, b) => titleMatchScore(query, qTokens, b.title) - titleMatchScore(query, qTokens, a.title))
+      .slice(0, 4)
+  }
+
   // 2. Fetch short snippets in parallel (capped at 25 to keep latency bounded)
   const candList = Array.from(candidates.values()).slice(0, 25)
   const snippets = await Promise.all(
@@ -632,6 +653,46 @@ export async function rankPages(
   return final
     .map(s => snap.pages.get(s.id))
     .filter((m): m is NotionPageMeta => Boolean(m))
+}
+
+function shouldScanNestedReferences(type: string): boolean {
+  return [
+    "callout",
+    "quote",
+    "toggle",
+    "bulleted_list_item",
+    "numbered_list_item",
+    "column_list",
+    "column",
+    "synced_block",
+  ].includes(type)
+}
+
+function isStrongTitleMatch(query: string, qTokens: string[], title: string): boolean {
+  const normalizedTitle = normalizeText(title)
+  const normalizedQuery = normalizeText(query)
+  if (normalizedQuery.length >= 4 && normalizedTitle.includes(normalizedQuery)) return true
+  if (qTokens.length < 2) return false
+  return qTokens.every(tok => new RegExp(`\\b${escapeRegExp(tok)}\\b`, "i").test(normalizedTitle))
+}
+
+function titleMatchScore(query: string, qTokens: string[], title: string): number {
+  const normalizedTitle = normalizeText(title)
+  const normalizedQuery = normalizeText(query)
+  let score = normalizedTitle.includes(normalizedQuery) ? 10 : 0
+  for (const tok of qTokens) {
+    if (new RegExp(`\\b${escapeRegExp(tok)}\\b`, "i").test(normalizedTitle)) score += 2
+  }
+  score -= Math.max(0, normalizedTitle.length - normalizedQuery.length) / 100
+  return score
+}
+
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 /**
@@ -881,7 +942,7 @@ async function fetchDatabaseMarkdown(
       .map(page => {
         const cells = columns.map(col => {
           const value = (page.properties ?? {})[col.name]
-          let text = propValueToString(value) || " "
+          let text = escapeTableCell(propValueToString(value) || " ")
           // Render title columns as markdown links back to the Notion page when possible
           if (col.type === "title") {
             const titleText = text || "Untitled"
@@ -925,6 +986,10 @@ function propValueToString(prop: any): string {
   }
 }
 
+function escapeTableCell(text: string): string {
+  return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ")
+}
+
 // ── Subgraph ────────────────────────────────────────────────────────────
 
 export function buildSubgraph(seeds: NotionPageMeta[], snap: CachedSnapshot): KnowledgeGraph {
@@ -966,10 +1031,6 @@ function parseSearchResult(item: NotionPage | NotionDatabase): NotionPageMeta | 
     // *inside* databases — those are records, not pages.
     const parentType = page.parent?.type
     if (parentType === "database_id") return null
-    // Pages with `block_id` parents are nested inside a column/toggle/etc.
-    // and aren't standalone pages either.
-    if (parentType === "block_id") return null
-
     const title = getPageTitle(page).trim()
     if (!title || title.toLowerCase() === "untitled") return null
     return {

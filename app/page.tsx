@@ -28,7 +28,12 @@ const LOADING_STATUSES = [
 
 const SEED_HISTORY: ChatHistoryItem[] = []
 const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
+const CHAT_HISTORY_STORAGE_KEY = "graphyne.chat.history.v1"
+const ACTIVE_CHAT_STORAGE_KEY = "graphyne.chat.active.v1"
 const REQUIRE_NOTION_LOGIN = true
+const MAX_PERSISTED_CHATS = 30
+const MAX_PERSISTED_GRAPH_NODES = 24
+const MAX_PERSISTED_GRAPH_EDGES = 40
 
 type WalkthroughSurface = "main" | "sidebar" | "graph"
 
@@ -101,6 +106,26 @@ function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`
 }
 
+function compactGraphForStorage(graph: KnowledgeGraph | undefined): KnowledgeGraph | undefined {
+  if (!graph) return undefined
+  const nodes = graph.nodes.slice(0, MAX_PERSISTED_GRAPH_NODES)
+  const kept = new Set(nodes.map(node => node.id))
+  const edges = graph.edges
+    .filter(edge => kept.has(edge.from) && kept.has(edge.to))
+    .slice(0, MAX_PERSISTED_GRAPH_EDGES)
+  return { nodes, edges }
+}
+
+function compactHistoryForStorage(history: ChatHistoryItem[]): ChatHistoryItem[] {
+  return history.slice(0, MAX_PERSISTED_CHATS).map(chat => ({
+    ...chat,
+    messages: chat.messages.map(message => ({
+      ...message,
+      graph: compactGraphForStorage(message.graph),
+    })),
+  }))
+}
+
 interface WorkspaceState {
   graph: KnowledgeGraph | null
   loading: boolean
@@ -148,15 +173,10 @@ function GraphynePage() {
     void reloadWorkspace()
   }, [oauthConnected, reloadWorkspace])
 
-  useEffect(() => {
-    if (!REQUIRE_NOTION_LOGIN) return
-    if (workspace.loading || workspace.connected) return
-    window.location.replace("/login")
-  }, [workspace.connected, workspace.loading])
-
   // ── Conversations ────────────────────────────────────────────────────────
   const [history, setHistory] = useState<ChatHistoryItem[]>(SEED_HISTORY)
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
+  const [historyHydrated, setHistoryHydrated] = useState(false)
 
   const [draftMessages, setDraftMessages] = useState<ChatMessage[]>([])
   const [draftTitle, setDraftTitle] = useState("New conversation")
@@ -191,10 +211,59 @@ function GraphynePage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
   const [walkthroughOpen, setWalkthroughOpen] = useState(false)
+  const [redirectingToLogin, setRedirectingToLogin] = useState(false)
 
   // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const walkthroughSteps = isMobile ? MOBILE_WALKTHROUGH_STEPS : DESKTOP_WALKTHROUGH_STEPS
+
+  useEffect(() => {
+    if (!REQUIRE_NOTION_LOGIN) return
+    if (workspace.loading || workspace.connected) return
+    setRedirectingToLogin(true)
+    window.location.replace("/login")
+  }, [workspace.connected, workspace.loading])
+
+  useEffect(() => {
+    try {
+      const rawHistory = window.localStorage.getItem(CHAT_HISTORY_STORAGE_KEY)
+      const rawActive = window.localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY)
+      if (rawHistory) {
+        const parsed = JSON.parse(rawHistory) as ChatHistoryItem[]
+        if (Array.isArray(parsed)) {
+          setHistory(parsed)
+          if (rawActive && parsed.some(chat => chat.id === rawActive)) setActiveChatId(rawActive)
+        }
+      }
+    } catch (error) {
+      console.warn("[chat] Failed to restore chat history:", error)
+    } finally {
+      setHistoryHydrated(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!historyHydrated) return
+    try {
+      window.localStorage.setItem(
+        CHAT_HISTORY_STORAGE_KEY,
+        JSON.stringify(compactHistoryForStorage(history)),
+      )
+    } catch (error) {
+      console.warn("[chat] Failed to persist chat history:", error)
+    }
+  }, [history, historyHydrated])
+
+  useEffect(() => {
+    if (!historyHydrated) return
+    try {
+      if (activeChatId) window.localStorage.setItem(ACTIVE_CHAT_STORAGE_KEY, activeChatId)
+      else window.localStorage.removeItem(ACTIVE_CHAT_STORAGE_KEY)
+    } catch {
+      // Non-critical.
+    }
+  }, [activeChatId, historyHydrated])
 
   useEffect(() => {
     try {
@@ -437,6 +506,14 @@ function GraphynePage() {
   )
 
   // ── Render ───────────────────────────────────────────────────────────────
+  if (REQUIRE_NOTION_LOGIN && (workspace.loading || (!workspace.connected && redirectingToLogin))) {
+    return (
+      <main className="flex h-[100dvh] w-screen items-center justify-center bg-background text-foreground">
+        <div className="text-sm text-muted-foreground">Checking workspace access...</div>
+      </main>
+    )
+  }
+
   return (
     <main className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
       {/* Desktop sidebar */}
@@ -451,6 +528,8 @@ function GraphynePage() {
           onOpenConnect={() => setConnectOpen(true)}
           workspaceConnected={workspace.connected}
           workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
         />
       </div>
 
@@ -477,6 +556,7 @@ function GraphynePage() {
             }}
             workspaceConnected={workspace.connected}
             workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+            collapsed={false}
           />
         </SheetContent>
       </Sheet>

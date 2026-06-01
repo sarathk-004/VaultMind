@@ -90,12 +90,12 @@ export function ChatInput({
           )}
         />
 
-        <div className="flex items-center justify-between px-2 pb-2">
+        <div className="flex flex-col gap-2 px-2 pb-2 sm:flex-row sm:items-center sm:justify-between">
           {/* Intent selector */}
           <div
             role="radiogroup"
             aria-label="Intent mode"
-            className="flex items-center gap-0.5 p-0.5 rounded-md bg-muted/40 border border-border"
+            className="grid w-full grid-cols-2 gap-0.5 rounded-md border border-border bg-muted/40 p-0.5 sm:flex sm:w-auto sm:items-center"
           >
             {INTENTS.map(i => {
               const cfg = INTENT_CONFIG[i]
@@ -110,14 +110,14 @@ export function ChatInput({
                   title={cfg.label}
                   onClick={() => onIntentChange(i)}
                   className={cn(
-                    "flex items-center gap-1.5 h-7 px-2 rounded-sm text-xs font-medium transition-colors",
+                    "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors sm:h-7",
                     active
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden />
-                  <span className="hidden sm:inline">{cfg.label}</span>
+                  <span className="min-w-0 truncate">{cfg.label}</span>
                 </button>
               )
             })}
@@ -128,7 +128,7 @@ export function ChatInput({
             onClick={onSubmit}
             disabled={!canSubmit}
             size="icon"
-            className="h-8 w-8 rounded-md"
+            className="h-8 w-full rounded-md sm:w-8"
             aria-label="Send message"
           >
             <ArrowUp className="h-4 w-4" />

@@ -67,6 +67,20 @@ export function blocksToMarkdown(
   const depth = opts.depth ?? 0
   const MAX_DEPTH = 3
 
+  const appendNestedChildren = (block: any) => {
+    if (!block.has_children || depth >= MAX_DEPTH) return
+    const kids = childrenMap.get(block.id)
+    if (kids && kids.length) {
+      const sub = blocksToMarkdown(kids, { childrenMap, depth: depth + 1 })
+      sub.mentionedIds.forEach(id => mentioned.add(id))
+      sub.childDatabaseIds.forEach(d => childDatabases.push(d))
+      sub.nestedBlockIds.forEach(id => nestedBlockIds.push(id))
+      if (sub.markdown.trim()) lines.push(sub.markdown)
+    } else {
+      nestedBlockIds.push(block.id)
+    }
+  }
+
   for (const block of blocks) {
     const t = block.type
     const data = block[t]
@@ -87,9 +101,11 @@ export function blocksToMarkdown(
         break
       case "bulleted_list_item":
         lines.push(`- ${richTextToMd(data.rich_text, mentioned)}`)
+        appendNestedChildren(block)
         break
       case "numbered_list_item":
         lines.push(`1. ${richTextToMd(data.rich_text, mentioned)}`)
+        appendNestedChildren(block)
         break
       case "to_do":
         lines.push(
@@ -115,9 +131,11 @@ export function blocksToMarkdown(
       }
       case "quote":
         lines.push(`> ${richTextToMd(data.rich_text, mentioned)}`)
+        appendNestedChildren(block)
         break
       case "callout":
-        lines.push(`> ${richTextToMd(data.rich_text, mentioned)}`)
+        lines.push(`[!note] ${richTextToMd(data.rich_text, mentioned) || "Callout"}`)
+        appendNestedChildren(block)
         break
       case "code":
         lines.push("```\n" + richTextToMd(data.rich_text, mentioned) + "\n```")
