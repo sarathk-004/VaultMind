@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Maximize2, Minimize2, Network, ZoomIn, ZoomOut, Locate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Skeleton } from "@/components/ui/skeleton"
 import type { KnowledgeGraph } from "@/lib/vaultmind-types"
 import {
   buildAdjacency,
@@ -444,8 +443,7 @@ function GraphCanvas({
   // the user pans to navigate. Fullscreen uses the true fit value.
   const computeFitTransform = useCallback(() => {
     const fit = Math.min(size.width / virtualSize.w, size.height / virtualSize.h, 1)
-    const minReadable = Math.max(fit, fullscreen ? 0.52 : 0.55)
-    const k = minReadable
+    const k = Math.min(0.9, Math.max(fit, fullscreen ? 0.52 : 0.55))
     return {
       k,
       x: (size.width - virtualSize.w * k) / 2,
@@ -569,20 +567,6 @@ function GraphCanvas({
           if (e.pointerType === "mouse") setHoveredId(null)
         }}
       >
-        {workspaceLoading && (
-          <div className="absolute inset-0 pointer-events-none p-6">
-            <div className="relative h-full w-full">
-              <Skeleton className="absolute left-[12%] top-[14%] h-9 w-32" />
-              <Skeleton className="absolute right-[14%] top-[24%] h-9 w-36" />
-              <Skeleton className="absolute left-[24%] top-[46%] h-9 w-28" />
-              <Skeleton className="absolute right-[20%] top-[58%] h-9 w-32" />
-              <Skeleton className="absolute left-[38%] top-[72%] h-9 w-36" />
-              <div className="absolute left-[28%] right-[24%] top-[34%] h-px bg-accent/70 animate-pulse" />
-              <div className="absolute left-[36%] right-[30%] top-[55%] h-px bg-accent/70 animate-pulse" />
-            </div>
-          </div>
-        )}
-
         {isEmpty && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 pointer-events-none">
             <Network className="h-8 w-8 text-muted-foreground/40 mb-3" aria-hidden />

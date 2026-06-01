@@ -940,18 +940,18 @@ async function fetchDatabaseMarkdown(
       .slice(0, 6)
     if (columns.length === 0) return ""
 
-    const header = `| ${columns.map(c => c.name).join(" | ")} |`
+    const header = `| ${columns.map(c => escapeMarkdownTableCell(c.name)).join(" | ")} |`
     const sep = `| ${columns.map(() => "---").join(" | ")} |`
     const rows = res.results
       .map(page => {
         const cells = columns.map(col => {
           const value = (page.properties ?? {})[col.name]
-          let text = escapeTableCell(propValueToString(value) || " ")
+          let text = escapeMarkdownTableCell(propValueToString(value) || " ")
           // Render title columns as markdown links back to the Notion page when possible
           if (col.type === "title") {
             const titleText = text || "Untitled"
             const url = (page as any).url
-            if (url) return `[${titleText}](${url})`
+            if (url) return `[${escapeMarkdownLinkText(titleText)}](${encodeMarkdownLinkUrl(url)})`
             return titleText
           }
           // Keep cells reasonably bounded so long tables don't explode the view
@@ -990,8 +990,21 @@ function propValueToString(prop: any): string {
   }
 }
 
-function escapeTableCell(text: string): string {
-  return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ")
+function escapeMarkdownTableCell(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function escapeMarkdownLinkText(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/]/g, "\\]")
+}
+
+function encodeMarkdownLinkUrl(url: string): string {
+  return encodeURI(url).replace(/\)/g, "%29")
 }
 
 // ── Subgraph ────────────────────────────────────────────────────────────

@@ -21,13 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
-import { Brain, Eye, Loader2, LogOut, Moon, Palette, Plug, Settings, Sun } from "lucide-react"
+import { Brain, Eye, Loader2, LogOut, Moon, Palette, Plug, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 
 export type SettingsSection = "appearance" | "models" | "graph" | "workspace"
@@ -228,63 +222,65 @@ export function SettingsDialog({
     }
   }
 
+  const section = initialSection ?? "appearance"
+  const sectionMeta: Record<SettingsSection, { title: string; description: string; icon: typeof Palette }> = {
+    appearance: {
+      title: "Appearance",
+      description: "Switch the interface theme.",
+      icon: Palette,
+    },
+    models: {
+      title: "Models",
+      description: "Choose the provider and model Graphyne uses for answers and linking.",
+      icon: Brain,
+    },
+    graph: {
+      title: "Graph display",
+      description: "Control how much of the workspace graph is visible by default.",
+      icon: Eye,
+    },
+    workspace: {
+      title: "Workspace",
+      description: "Review or clear this browser's Notion connection.",
+      icon: Plug,
+    },
+  }
+  const SectionIcon = sectionMeta[section].icon
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[calc(100dvh-1rem)] overflow-y-auto bg-background border-border p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-semibold tracking-tight">
-            <Settings className="h-4 w-4 text-muted-foreground" aria-hidden />
-            Settings
+            <SectionIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            {sectionMeta[section].title}
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Configure appearance, models, graph display, and workspace access.
+            {sectionMeta[section].description}
           </DialogDescription>
         </DialogHeader>
 
-        <Accordion key={initialSection ?? "default"} type="multiple" defaultValue={initialSection ? [initialSection] : []} className="py-1">
-          <AccordionItem value="appearance">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div className="flex items-start gap-2 text-left">
-                <Palette className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
-                <div>
-                <div>Appearance</div>
-                <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  {mounted && resolvedTheme === "light" ? "Light" : "Dark"} theme
-                </p>
-                </div>
+        {section === "appearance" && (
+          <div className="space-y-4 py-2">
+            <Row
+              label="Light mode"
+              hint="Switch between Graphyne's light and dark themes."
+            >
+              <div className="flex items-center gap-2">
+                <Moon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                <Switch
+                  checked={mounted && resolvedTheme === "light"}
+                  onCheckedChange={checked => setTheme(checked ? "light" : "dark")}
+                  aria-label="Use light mode"
+                />
+                <Sun className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
               </div>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-3">
-              <Row
-                label="Light mode"
-                hint="Switch between Graphyne's light and dark themes."
-              >
-                <div className="flex items-center gap-2">
-                  <Moon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                  <Switch
-                    checked={mounted && resolvedTheme === "light"}
-                    onCheckedChange={checked => setTheme(checked ? "light" : "dark")}
-                    aria-label="Use light mode"
-                  />
-                  <Sun className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                </div>
-              </Row>
-            </AccordionContent>
-          </AccordionItem>
+            </Row>
+          </div>
+        )}
 
-          <AccordionItem value="models">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div className="flex items-start gap-2 text-left">
-                <Brain className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
-                <div>
-                <div>Models</div>
-                <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  {providerSummary}
-                </p>
-                </div>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-3 pb-3">
+        {section === "models" && (
+          <div className="space-y-3 py-2">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Provider">
                   <Select
@@ -392,48 +388,26 @@ export function SettingsDialog({
                 </Button>
               </div>
               {status && <p className="text-[11px] text-muted-foreground">{status}</p>}
-            </AccordionContent>
-          </AccordionItem>
+          </div>
+        )}
 
-          <AccordionItem value="graph">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div className="flex items-start gap-2 text-left">
-                <Eye className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
-                <div>
-                <div>Graph display</div>
-                <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  Full graph {showFullGraph ? "on" : "off"}
-                </p>
-                </div>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-3">
-              <Row
-                label="Show full workspace graph"
-                hint="Always render every page in the graph. When off, only the focused subgraph for the current query is shown."
-              >
-                <Switch
-                  checked={showFullGraph}
-                  onCheckedChange={onShowFullGraphChange}
-                  aria-label="Show full workspace graph"
-                />
-              </Row>
-            </AccordionContent>
-          </AccordionItem>
+        {section === "graph" && (
+          <div className="space-y-4 py-2">
+            <Row
+              label="Show full workspace graph"
+              hint="Always render every page in the graph. When off, only the focused subgraph for the current query is shown."
+            >
+              <Switch
+                checked={showFullGraph}
+                onCheckedChange={onShowFullGraphChange}
+                aria-label="Show full workspace graph"
+              />
+            </Row>
+          </div>
+        )}
 
-          <AccordionItem value="workspace">
-            <AccordionTrigger className="py-3 hover:no-underline">
-              <div className="flex items-start gap-2 text-left">
-                <Plug className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
-                <div>
-                <div>Workspace</div>
-                <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
-                  {workspaceLabel ?? "Not connected"}
-                </p>
-                </div>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="pb-3">
+        {section === "workspace" && (
+          <div className="py-2">
               <div className="space-y-4">
                 <Row label="Workspace" hint="Connected through your Notion authorization.">
                 <span className="text-xs text-foreground/80 flex items-center gap-1.5">
@@ -469,9 +443,8 @@ export function SettingsDialog({
                 </Row>
                 {logoutError && <p className="text-[11px] text-destructive">{logoutError}</p>}
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+          </div>
+        )}
 
         <DialogFooter>
           <Button size="sm" onClick={() => onOpenChange(false)}>

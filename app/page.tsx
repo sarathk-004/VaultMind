@@ -578,6 +578,7 @@ function GraphynePage() {
           workspaceConnected={workspace.connected}
           workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
           workspaceProfile={workspace.profile}
+          workspaceLoading={workspace.loading}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
         />
@@ -613,6 +614,7 @@ function GraphynePage() {
             workspaceConnected={workspace.connected}
             workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
             workspaceProfile={workspace.profile}
+            workspaceLoading={workspace.loading}
             collapsed={false}
           />
         </SheetContent>

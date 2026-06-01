@@ -114,8 +114,8 @@ export function Sidebar({
     >
       <div
         className={cn(
-          "flex shrink-0 border-b border-border",
-          collapsed ? "h-[86px] flex-col items-center justify-center gap-2 px-2" : "h-14 items-center justify-between gap-2 px-4",
+          "flex shrink-0 border-b border-border overflow-hidden transition-all duration-300 w-full",
+          collapsed ? "h-14 items-center justify-center px-1" : "h-14 items-center justify-between gap-2 px-4",
         )}
       >
         <button
@@ -123,14 +123,14 @@ export function Sidebar({
           onClick={onNewChat}
           className={cn(
             "flex items-center gap-2 rounded-md transition-colors hover:text-foreground/80 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
-            collapsed && "justify-center",
+            collapsed && "h-8 w-8 shrink-0 justify-center",
           )}
           aria-label="Start new chat"
         >
           <BrandMark className="h-7 w-7" />
           {!collapsed && <span className="text-md font-semibold tracking-tight">graphyne</span>}
         </button>
-        <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+        <div className={cn("flex items-center gap-1", collapsed && "sr-only")}>
           <Popover open={searchOpen} onOpenChange={setSearchOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -178,7 +178,7 @@ export function Sidebar({
                             onSelectChat(chat.id)
                             setSearchOpen(false)
                           }}
-                          className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/55 hover:text-accent-foreground"
+                          className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
                         >
                           <div className="truncate text-xs font-medium">{chat.title}</div>
                           <div className="truncate text-[11px] text-muted-foreground">
@@ -208,6 +208,78 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+        {collapsed && (
+          <div className="mb-2 flex items-center justify-center gap-0">
+            <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label="Search chats"
+                  title="Search chats"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="right" align="start" sideOffset={10} className="w-72 p-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={searchQuery}
+                    onChange={event => setSearchQuery(event.target.value)}
+                    placeholder="Search chats"
+                    className="h-8 pl-8 text-xs"
+                    autoFocus
+                  />
+                </div>
+                <div className="mt-2 max-h-72 overflow-y-auto">
+                  {history.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                      Your conversations will appear here.
+                    </p>
+                  ) : visibleHistory.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                      No chats match your search.
+                    </p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {visibleHistory.map(chat => (
+                        <li key={chat.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectChat(chat.id)
+                              setSearchOpen(false)
+                            }}
+                            className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <div className="truncate text-xs font-medium">{chat.title}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {chat.preview || "No messages yet"}
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+            {onCollapsedChange && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label="Expand sidebar"
+                onClick={() => onCollapsedChange(false)}
+                title="Expand sidebar"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        )}
         <div className={cn("mb-2 flex items-center", collapsed ? "justify-center" : "px-2")}>
           <Button
             variant="outline"
@@ -259,7 +331,7 @@ export function Sidebar({
             <button
               type="button"
               className={cn(
-                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-accent/55 hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
+                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
                 collapsed ? "justify-center p-1" : "w-full px-1 py-1 text-left",
               )}
               aria-label="Account menu"
@@ -408,15 +480,15 @@ function ChatSection({
                   className={cn(
                     "w-full rounded-md px-2.5 py-2 text-left transition-all duration-200 ease-out",
                     active
-                      ? "bg-muted/70 text-foreground"
-                      : "text-foreground/90 hover:bg-muted/55",
+                      ? "bg-accent text-accent-foreground"
+                      : "text-foreground/90 hover:bg-accent hover:text-accent-foreground",
                   )}
                 >
                   <div className="mb-0.5 flex items-center gap-2 pr-8">
                     <MessageSquare
                       className={cn(
                         "h-3 w-3 shrink-0",
-                        active ? "text-foreground/70" : "text-muted-foreground group-hover:text-foreground",
+                        active ? "text-accent-foreground/80" : "text-muted-foreground group-hover:text-accent-foreground",
                       )}
                     />
                     {chat.starred && <Star className="h-3 w-3 shrink-0 fill-muted-foreground/70 text-muted-foreground/70" />}
@@ -431,7 +503,7 @@ function ChatSection({
                     <button
                       type="button"
                       aria-label={`Open actions for ${chat.title}`}
-                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20 group-hover:opacity-100"
+                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-accent hover:text-accent-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20 group-hover:opacity-100"
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
                     </button>

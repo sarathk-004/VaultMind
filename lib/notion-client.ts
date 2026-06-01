@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHmac } from "node:crypto"
 
 const NOTION_BASE = "https://api.notion.com/v1"
 const NOTION_VERSION = "2022-06-28"
@@ -149,5 +149,6 @@ export function tokenKey(token?: string | null): string {
   const k = token ?? process.env.NOTION_API_KEY ?? ""
   if (!k) return "none"
   // Cheap non-crypto hash — enough to namespace caches in-memory.
-  return `t_${createHash("sha256").update(k).digest("base64url").slice(0, 32)}`
+  const secret = process.env.NOTION_CACHE_KEY_SECRET ?? process.env.NEXTAUTH_SECRET ?? "graphyne-local-cache"
+  return `t_${createHmac("sha256", secret).update(k).digest("base64url").slice(0, 32)}`
 }
