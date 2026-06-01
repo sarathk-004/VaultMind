@@ -112,8 +112,8 @@ export function ChatInput({
                   className={cn(
                     "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors sm:h-7",
                     active
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                      ? "bg-muted/70 text-foreground ring-1 ring-border/70"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/55",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -135,18 +135,6 @@ export function ChatInput({
           </Button>
         </div>
       </div>
-
-      <p className="text-center text-[10px] text-muted-foreground mt-2 tracking-wide">
-        Graphyne queries your workspace via MCP. Press
-        <kbd className="mx-1 px-1.5 py-0.5 rounded border border-border bg-muted/40 font-mono text-[10px]">
-          Enter
-        </kbd>
-        to send,
-        <kbd className="mx-1 px-1.5 py-0.5 rounded border border-border bg-muted/40 font-mono text-[10px]">
-          Shift + Enter
-        </kbd>
-        for newline.
-      </p>
     </div>
   )
 }

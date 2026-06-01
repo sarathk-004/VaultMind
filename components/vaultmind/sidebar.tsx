@@ -1,25 +1,31 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import type { ReactElement } from "react"
 import {
   Brain,
   Eye,
   LogOut,
   MessageSquare,
+  MoreHorizontal,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Plug,
   Search,
-  Settings,
   Star,
   Trash2,
 } from "lucide-react"
 import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { ConfirmDialog } from "@/components/vaultmind/confirm-dialog"
 import { cn } from "@/lib/utils"
@@ -76,10 +82,10 @@ export function Sidebar({
           `${chat.title} ${chat.preview}`.toLowerCase().includes(query),
         )
       : history
-    return filtered
-      .slice()
-      .sort((a, b) => Number(Boolean(b.starred)) - Number(Boolean(a.starred)) || b.createdAt - a.createdAt)
+    return filtered.slice().sort((a, b) => b.createdAt - a.createdAt)
   }, [history, searchQuery])
+  const pinnedChats = visibleHistory.filter(chat => chat.starred)
+  const recentChats = visibleHistory.filter(chat => !chat.starred)
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -111,7 +117,7 @@ export function Sidebar({
           type="button"
           onClick={onNewChat}
           className={cn(
-            "flex items-center gap-2 rounded-md transition-colors hover:text-primary focus:outline-none focus:ring-2 focus:ring-ring",
+            "flex items-center gap-2 rounded-md transition-colors hover:text-foreground/80 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
             collapsed && "justify-center",
           )}
           aria-label="Start new chat"
@@ -134,12 +140,7 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-        <div className={cn("mb-2 flex items-center", collapsed ? "justify-center" : "justify-between px-2")}>
-          {!collapsed && (
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              Recents
-            </span>
-          )}
+        <div className={cn("mb-2 flex items-center", collapsed ? "justify-center" : "justify-end px-2")}>
           <Button
             variant="outline"
             size={collapsed ? "icon" : "sm"}
@@ -173,189 +174,94 @@ export function Sidebar({
             No chats match your search.
           </div>
         ) : (
-          <ul className="flex flex-col gap-0.5">
-            {visibleHistory.map(chat => {
-              const active = chat.id === activeChatId
-              return (
-                <li key={chat.id}>
-                  <div className="group relative">
-                    <button
-                      onClick={() => onSelectChat(chat.id)}
-                      className={cn(
-                        "w-full rounded-md px-2.5 py-2 text-left transition-all duration-200 ease-out",
-                        active
-                          ? "bg-accent text-accent-foreground dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
-                          : "text-foreground/90 hover:bg-muted",
-                      )}
-                    >
-                      <div className="mb-0.5 flex items-center gap-2 pr-12">
-                        <MessageSquare
-                          className={cn(
-                            "h-3 w-3 shrink-0",
-                            active ? "text-primary dark:text-sidebar-foreground" : "text-muted-foreground group-hover:text-foreground",
-                          )}
-                        />
-                        {chat.starred && <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />}
-                        <span className="truncate text-xs font-medium">{chat.title}</span>
-                      </div>
-                      <p className="truncate pl-5 text-[11px] leading-relaxed text-muted-foreground">
-                        {chat.preview || "No messages yet"}
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={chat.starred ? `Unstar ${chat.title}` : `Star ${chat.title}`}
-                      onClick={event => {
-                        event.stopPropagation()
-                        onToggleStar(chat.id)
-                      }}
-                      className={cn(
-                        "absolute right-8 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-amber-400 group-hover:opacity-100",
-                        chat.starred && "text-amber-400 opacity-100",
-                      )}
-                    >
-                      <Star className={cn("h-3.5 w-3.5", chat.starred && "fill-amber-400")} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${chat.title}`}
-                      onClick={event => {
-                        event.stopPropagation()
-                        setDeleteTargetId(chat.id)
-                      }}
-                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+          <div className="space-y-4">
+            {pinnedChats.length > 0 && (
+              <ChatSection
+                title="Pinned"
+                chats={pinnedChats}
+                activeChatId={activeChatId}
+                onSelectChat={onSelectChat}
+                onToggleStar={onToggleStar}
+                onDeleteChat={setDeleteTargetId}
+              />
+            )}
+            <ChatSection
+              title="Recents"
+              chats={recentChats}
+              activeChatId={activeChatId}
+              onSelectChat={onSelectChat}
+              onToggleStar={onToggleStar}
+              onDeleteChat={setDeleteTargetId}
+            />
+          </div>
         )}
       </div>
 
       <div className={cn("flex shrink-0 border-t border-border p-3", collapsed ? "flex-col items-center gap-2" : "flex-col gap-2")}>
-        {!collapsed && (
-          <div className="flex items-center gap-2">
+        <DropdownMenu open={profileOpen} onOpenChange={setProfileOpen}>
+          <DropdownMenuTrigger asChild>
             <button
-              onClick={onOpenConnect}
-              className="group flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 transition-colors hover:bg-muted"
+              type="button"
+              className={cn(
+                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
+                collapsed ? "justify-center p-1" : "px-1 py-1 text-left",
+              )}
+              aria-label="Account menu"
+              data-tour="account-button"
             >
-              <span
-                className={cn(
-                  "h-2 w-2 shrink-0 rounded-full",
-                  workspaceConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-amber-500/70",
-                )}
-              />
-              <span className="truncate text-xs font-medium">{workspaceLabel}</span>
-              <Plug className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-            </button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9"
-              aria-label="Settings"
-              onClick={() => onOpenSettings()}
-              data-tour="settings-button"
-            >
-              <Settings className="h-[18px] w-[18px]" />
-            </Button>
-          </div>
-        )}
-
-        <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-end")}>
-          {collapsed && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Connect Notion" onClick={onOpenConnect} title={workspaceLabel}>
-              <Plug className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn("h-8 w-8", !collapsed && "hidden")}
-            aria-label="Settings"
-            onClick={() => onOpenSettings()}
-            data-tour="settings-button"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {workspaceProfile && (
-          <button
-            type="button"
-            onClick={() => setProfileOpen(true)}
-            className={cn(
-              "flex items-center gap-2 transition-colors hover:bg-muted",
-              collapsed ? "justify-center rounded-md p-1" : "rounded-md px-1 py-1 text-left",
-            )}
-          >
-            {workspaceProfile.avatarUrl ? (
-              <img
-                src={workspaceProfile.avatarUrl}
-                alt={workspaceProfile.name ? `${workspaceProfile.name} profile` : "Notion profile"}
-                className="h-8 w-8 rounded-full border border-border object-cover"
-              />
-            ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground">
-                {(workspaceProfile.name ?? "N").slice(0, 1).toUpperCase()}
-              </div>
-            )}
-            {!collapsed && (
-              <div className="min-w-0 text-left leading-tight">
-                <div className="truncate text-xs font-medium">{workspaceProfile.name ?? "Notion user"}</div>
-                <div className="text-[10px] text-muted-foreground">Connected profile</div>
-              </div>
-            )}
-          </button>
-        )}
-      </div>
-
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="max-w-sm p-0">
-          <DialogHeader className="px-4 pt-4 pb-2">
-            <DialogTitle className="text-sm font-semibold">Account</DialogTitle>
-          </DialogHeader>
-          <div className="px-4 pb-4">
-            {workspaceProfile && (
-              <div className="mb-3 flex items-center gap-2 rounded-md bg-muted/45 p-2">
-                {workspaceProfile.avatarUrl ? (
-                  <img
-                    src={workspaceProfile.avatarUrl}
-                    alt={workspaceProfile.name ? `${workspaceProfile.name} profile` : "Notion profile"}
-                    className="h-8 w-8 rounded-full border border-border object-cover"
-                  />
-                ) : (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background text-[11px] font-medium">
-                    {(workspaceProfile.name ?? "N").slice(0, 1).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <div className="truncate text-xs font-medium">{workspaceProfile.name ?? "Notion user"}</div>
+              <ProfileAvatar profile={workspaceProfile} />
+              {!collapsed && (
+                <div className="min-w-0 text-left leading-tight">
+                  <div className="truncate text-xs font-medium">{workspaceProfile?.name ?? "Account"}</div>
                   <div className="text-[10px] text-muted-foreground">{workspaceLabel}</div>
                 </div>
-              </div>
-            )}
-            <div className="space-y-1">
-              <AccountAction icon={<Palette />} label="Appearance" onClick={() => { setProfileOpen(false); onOpenSettings("appearance") }} />
-              <AccountAction icon={<Brain />} label="Models" onClick={() => { setProfileOpen(false); onOpenSettings("models") }} />
-              <AccountAction icon={<Eye />} label="Graph display" onClick={() => { setProfileOpen(false); onOpenSettings("graph") }} />
-              <AccountAction icon={<Plug />} label="Modify connection" onClick={() => { setProfileOpen(false); onOpenConnect() }} />
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
-              >
-                <LogOut className="h-4 w-4" />
-                {loggingOut ? "Logging out..." : "Log out"}
-              </button>
-              {logoutError && <p className="px-2 text-[11px] text-destructive">{logoutError}</p>}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side={collapsed ? "right" : "top"}
+            align="start"
+            sideOffset={8}
+            className="w-56"
+          >
+            <DropdownMenuLabel className="flex items-center gap-2">
+              <ProfileAvatar profile={workspaceProfile} />
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-medium">{workspaceProfile?.name ?? "Account"}</span>
+                <span className="block truncate text-[10px] font-normal text-muted-foreground">{workspaceLabel}</span>
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onOpenSettings("appearance")} className="text-xs">
+              <Palette className="h-4 w-4" />
+              Appearance
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onOpenSettings("models")} className="text-xs">
+              <Brain className="h-4 w-4" />
+              Models
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onOpenSettings("graph")} className="text-xs">
+              <Eye className="h-4 w-4" />
+              Graph display
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onOpenConnect} className="text-xs">
+              <Plug className="h-4 w-4" />
+              Modify connection
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleLogout}
+              disabled={loggingOut}
+              variant="destructive"
+              className="text-xs"
+            >
+              <LogOut className="h-4 w-4" />
+              {loggingOut ? "Logging out..." : "Log out"}
+            </DropdownMenuItem>
+            {logoutError && <p className="px-2 py-1 text-[11px] text-destructive">{logoutError}</p>}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}
@@ -375,23 +281,112 @@ export function Sidebar({
   )
 }
 
-function AccountAction({
-  icon,
-  label,
-  onClick,
+function ProfileAvatar({
+  profile,
 }: {
-  icon: ReactElement
-  label: string
-  onClick: () => void
+  profile?: {
+    name?: string | null
+    avatarUrl?: string | null
+  } | null
 }) {
+  if (profile?.avatarUrl) {
+    return (
+      <img
+        src={profile.avatarUrl}
+        alt={profile.name ? `${profile.name} profile` : "Profile"}
+        className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
+      />
+    )
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs font-medium transition-colors hover:bg-muted"
-    >
-      {icon && <span className="text-muted-foreground [&_svg]:h-4 [&_svg]:w-4">{icon}</span>}
-      {label}
-    </button>
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground">
+      {(profile?.name ?? "A").slice(0, 1).toUpperCase()}
+    </div>
+  )
+}
+
+function ChatSection({
+  title,
+  chats,
+  activeChatId,
+  onSelectChat,
+  onToggleStar,
+  onDeleteChat,
+}: {
+  title: string
+  chats: ChatHistoryItem[]
+  activeChatId: string | null
+  onSelectChat: (id: string) => void
+  onToggleStar: (id: string) => void
+  onDeleteChat: (id: string) => void
+}) {
+  if (chats.length === 0) return null
+
+  return (
+    <section>
+      <div className="mb-1 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {title}
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {chats.map(chat => {
+          const active = chat.id === activeChatId
+          return (
+            <li key={chat.id}>
+              <div className="group relative">
+                <button
+                  onClick={() => onSelectChat(chat.id)}
+                  className={cn(
+                    "w-full rounded-md px-2.5 py-2 text-left transition-all duration-200 ease-out",
+                    active
+                      ? "bg-muted/70 text-foreground"
+                      : "text-foreground/90 hover:bg-muted/55",
+                  )}
+                >
+                  <div className="mb-0.5 flex items-center gap-2 pr-8">
+                    <MessageSquare
+                      className={cn(
+                        "h-3 w-3 shrink-0",
+                        active ? "text-foreground/70" : "text-muted-foreground group-hover:text-foreground",
+                      )}
+                    />
+                    {chat.starred && <Star className="h-3 w-3 shrink-0 fill-muted-foreground/70 text-muted-foreground/70" />}
+                    <span className="truncate text-xs font-medium">{chat.title}</span>
+                  </div>
+                  <p className="truncate pl-5 pr-8 text-[11px] leading-relaxed text-muted-foreground">
+                    {chat.preview || "No messages yet"}
+                  </p>
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Open actions for ${chat.title}`}
+                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20 group-hover:opacity-100"
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" sideOffset={4} className="w-36">
+                    <DropdownMenuItem onClick={() => onToggleStar(chat.id)} className="text-xs">
+                      <Star className={cn("h-4 w-4", chat.starred && "fill-current")} />
+                      {chat.starred ? "Unstar" : "Star"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onDeleteChat(chat.id)}
+                      variant="destructive"
+                      className="text-xs"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }

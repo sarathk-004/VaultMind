@@ -72,9 +72,9 @@ const DESKTOP_WALKTHROUGH_STEPS: WalkthroughStep[] = [
     placement: "left",
   },
   {
-    target: '[data-tour="settings-button"]',
+    target: '[data-tour="account-button"]',
     title: "Tune the experience",
-    body: "Settings lets you switch theme, control graph display, choose model providers, and manage workspace behavior.",
+    body: "Account lets you switch theme, control graph display, choose model providers, and manage workspace behavior.",
     placement: "top",
   },
 ]

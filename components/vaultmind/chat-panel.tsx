@@ -244,7 +244,7 @@ function EmptyChatState({
       <button
         type="button"
         onClick={onNewChat}
-        className="mb-4 rounded-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-ring"
+        className="mb-4 rounded-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20"
         aria-label="Start new chat"
       >
         <BrandMark className="h-12 w-12 rounded-lg" />
@@ -305,7 +305,7 @@ function buildIntentSuggestions(
   const labels = pickSuggestionLabels(nodes, 3, intentSeed, intent)
   const [first, second, third] = labels
   const fallback = shuffleWithSeed(INTENT_FALLBACKS[intent], intentSeed).slice(0, 3)
-  const limit = (text: string) => limitSuggestion(text, 52)
+  const limit = (text: string) => text
 
   switch (intent) {
     case "search":
