@@ -133,7 +133,7 @@ export function ChatPanel(props: ChatPanelProps) {
             size="sm"
             onClick={() => setClearDialogOpen(true)}
             disabled={messages.length === 0 && !loading}
-            className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            className="h-8 gap-1.5 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Clear</span>

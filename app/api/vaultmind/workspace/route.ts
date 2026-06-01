@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getWorkspaceSnapshot, snapshotToGraph } from "@/lib/notion-retriever"
-import { isNotionConnected } from "@/lib/notion-client"
+import { isNotionConnected, notionFetch } from "@/lib/notion-client"
 import { getRequestNotionOAuthCookie, getRequestNotionToken } from "@/lib/notion-token"
 import { providerOptionsFromSettings } from "@/lib/llm-client"
 import { getRequestLlmSettings, hasAvailableLlmProvider } from "@/lib/llm-settings"
@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
     const graph = isStackerEnabled(stackerConfig)
       ? await getStackerWorkspaceGraph({ snapshot: snap, token, config: stackerConfig, workspaceId })
       : snapshotToGraph(snap)
+    const profile = await getNotionProfile(token)
     console.log(
       `[v0] Workspace endpoint: pages=${snap.pages.size}, edges=${snap.edges.length}, ` +
         `graph nodes=${graph.nodes.length}, graph edges=${graph.edges.length}, ` +
@@ -41,6 +42,7 @@ export async function GET(req: NextRequest) {
     const res = NextResponse.json({
       graph,
       connected: isNotionConnected(token),
+      profile,
       fetchedAt: snap.fetchedAt,
     })
     const identity = resolveWorkspaceIdentity({ workspaceId, token, source: snap.source })
@@ -65,5 +67,22 @@ export async function GET(req: NextRequest) {
       { error: "Failed to fetch workspace" },
       { status: 500 },
     )
+  }
+}
+
+async function getNotionProfile(token: string | null): Promise<{ name: string | null; avatarUrl: string | null } | null> {
+  try {
+    const me = await notionFetch<{
+      name?: string | null
+      avatar_url?: string | null
+      bot?: { owner?: { workspace?: boolean; user?: { name?: string | null; avatar_url?: string | null } } }
+    }>("/users/me", undefined, token)
+    const owner = me.bot?.owner?.user
+    return {
+      name: owner?.name ?? me.name ?? null,
+      avatarUrl: owner?.avatar_url ?? me.avatar_url ?? null,
+    }
+  } catch {
+    return null
   }
 }

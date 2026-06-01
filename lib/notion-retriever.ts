@@ -40,6 +40,7 @@ interface WorkspaceLlmOptions {
   modelOverride?: string | null
   keys?: Partial<Record<KeyedLlmProvider, string | null>>
   budgetMs?: number
+  skipLlmClassification?: boolean
 }
 
 interface CachedPageContent {
@@ -131,7 +132,7 @@ export async function getWorkspaceSnapshot(
   token?: string | null,
   llm?: WorkspaceLlmOptions,
 ): Promise<CachedSnapshot> {
-  const key = `${tokenKey(token)}:${llm?.providerOverride ?? "auto"}:${llm?.modelOverride ?? ""}:${llmKeyFingerprint(llm?.keys)}`
+  const key = `${tokenKey(token)}:${llm?.providerOverride ?? "auto"}:${llm?.modelOverride ?? ""}:${llmKeyFingerprint(llm?.keys)}:${llm?.skipLlmClassification ? "no-llm-edges" : "llm-edges"}`
 
   if (!isNotionConnected(token)) {
     console.log("[v0] No Notion token — using local mock workspace")
@@ -280,6 +281,7 @@ export async function getWorkspaceSnapshot(
     }
 
     let llmEdgeCount = 0
+    if (!llm?.skipLlmClassification) {
     try {
       const { classifyPagesWithLLM } = await import("./page-classifier")
       const classifications = await classifyPagesWithLLM(docTexts, {
@@ -300,6 +302,8 @@ export async function getWorkspaceSnapshot(
         "[v0] LLM classification unavailable — semantic graph stayed deterministic:",
         err instanceof Error ? err.message : err,
       )
+    }
+
     }
 
     console.log(
@@ -599,8 +603,8 @@ export async function rankPages(
       .slice(0, 4)
   }
 
-  // 2. Fetch short snippets in parallel (capped at 25 to keep latency bounded)
-  const candList = Array.from(candidates.values()).slice(0, 25)
+  // 2. Fetch short snippets in parallel (capped to keep latency bounded)
+  const candList = Array.from(candidates.values()).slice(0, 15)
   const snippets = await Promise.all(
     candList.map(meta => fetchSnippet(meta, token).catch(() => "")),
   )

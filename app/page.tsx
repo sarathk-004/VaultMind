@@ -130,6 +130,10 @@ interface WorkspaceState {
   graph: KnowledgeGraph | null
   loading: boolean
   connected: boolean
+  profile?: {
+    name?: string | null
+    avatarUrl?: string | null
+  } | null
 }
 
 function GraphynePage() {
@@ -156,11 +160,12 @@ function GraphynePage() {
         graph: data.graph,
         loading: false,
         connected: Boolean(data.connected),
+        profile: data.profile ?? null,
       }
       setWorkspace(next)
     } catch (err) {
       console.error("[v0] Failed to load workspace:", err)
-      setWorkspace({ graph: null, loading: false, connected: false })
+      setWorkspace({ graph: null, loading: false, connected: false, profile: null })
     }
   }, [])
 
@@ -211,7 +216,6 @@ function GraphynePage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
   const [walkthroughOpen, setWalkthroughOpen] = useState(false)
-  const [redirectingToLogin, setRedirectingToLogin] = useState(false)
 
   // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
@@ -220,10 +224,10 @@ function GraphynePage() {
 
   useEffect(() => {
     if (!REQUIRE_NOTION_LOGIN) return
+    if (!oauthConnected) return
     if (workspace.loading || workspace.connected) return
-    setRedirectingToLogin(true)
     window.location.replace("/login")
-  }, [workspace.connected, workspace.loading])
+  }, [oauthConnected, workspace.connected, workspace.loading])
 
   useEffect(() => {
     try {
@@ -506,14 +510,6 @@ function GraphynePage() {
   )
 
   // ── Render ───────────────────────────────────────────────────────────────
-  if (REQUIRE_NOTION_LOGIN && (workspace.loading || (!workspace.connected && redirectingToLogin))) {
-    return (
-      <main className="flex h-[100dvh] w-screen items-center justify-center bg-background text-foreground">
-        <div className="text-sm text-muted-foreground">Checking workspace access...</div>
-      </main>
-    )
-  }
-
   return (
     <main className="flex h-[100dvh] w-screen overflow-hidden bg-background text-foreground">
       {/* Desktop sidebar */}
@@ -527,7 +523,8 @@ function GraphynePage() {
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenConnect={() => setConnectOpen(true)}
           workspaceConnected={workspace.connected}
-          workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+          workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
+          workspaceProfile={workspace.profile}
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
         />
@@ -555,7 +552,8 @@ function GraphynePage() {
               setMobileSidebarOpen(false)
             }}
             workspaceConnected={workspace.connected}
-            workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+            workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
+            workspaceProfile={workspace.profile}
             collapsed={false}
           />
         </SheetContent>
@@ -638,7 +636,7 @@ function GraphynePage() {
         onOpenChange={setSettingsOpen}
         showFullGraph={showFullGraph}
         onShowFullGraphChange={setShowFullGraph}
-        workspaceLabel={workspace.connected ? "Notion (live)" : "Local sample"}
+        workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
         workspaceConnected={workspace.connected}
         onLlmSettingsChange={() => void reloadWorkspace()}
       />

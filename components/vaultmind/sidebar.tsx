@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, MessageSquare, Plus, Plug, Settings, Trash2 } from "lucide-react"
+import { MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Plug, Settings, Trash2 } from "lucide-react"
 import { BrandMark } from "@/components/brand/brand-mark"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/vaultmind/confirm-dialog"
@@ -18,6 +18,10 @@ interface SidebarProps {
   onOpenConnect: () => void
   workspaceLabel?: string
   workspaceConnected?: boolean
+  workspaceProfile?: {
+    name?: string | null
+    avatarUrl?: string | null
+  } | null
   collapsed?: boolean
   onCollapsedChange?: (collapsed: boolean) => void
 }
@@ -32,6 +36,7 @@ export function Sidebar({
   onOpenConnect,
   workspaceLabel = "Notion Workspace",
   workspaceConnected = true,
+  workspaceProfile = null,
   collapsed = false,
   onCollapsedChange,
 }: SidebarProps) {
@@ -48,9 +53,28 @@ export function Sidebar({
         collapsed ? "md:w-[56px]" : "md:w-[260px]",
       )}
     >
-      <div className={cn("flex h-14 shrink-0 items-center gap-2 border-b border-border", collapsed ? "justify-center px-2" : "px-4")}>
-        <BrandMark className="h-7 w-7" />
-        {!collapsed && <span className="text-md font-semibold tracking-tight">graphyne</span>}
+      <div
+        className={cn(
+          "flex shrink-0 border-b border-border",
+          collapsed ? "h-[86px] flex-col items-center justify-center gap-2 px-2" : "h-14 items-center justify-between gap-2 px-4",
+        )}
+      >
+        <div className={cn("flex items-center gap-2", collapsed && "justify-center")}>
+          <BrandMark className="h-7 w-7" />
+          {!collapsed && <span className="text-md font-semibold tracking-tight">graphyne</span>}
+        </div>
+        {onCollapsedChange && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => onCollapsedChange(!collapsed)}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
@@ -72,23 +96,7 @@ export function Sidebar({
           </Button>
         </div>
 
-        {collapsed ? (
-          <div className="flex flex-col items-center gap-1 pt-2">
-            {history.slice(0, 8).map(chat => (
-              <Button
-                key={chat.id}
-                variant={chat.id === activeChatId ? "secondary" : "ghost"}
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => onSelectChat(chat.id)}
-                title={chat.title}
-                aria-label={chat.title}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-              </Button>
-            ))}
-          </div>
-        ) : history.length === 0 ? (
+        {collapsed ? null : history.length === 0 ? (
           <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
             Your conversations will appear here.
           </div>
@@ -128,7 +136,7 @@ export function Sidebar({
                         event.stopPropagation()
                         setDeleteTargetId(chat.id)
                       }}
-                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                      className="absolute right-2 top-2 rounded-sm p-1 text-muted-foreground opacity-0 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -141,25 +149,58 @@ export function Sidebar({
       </div>
 
       <div className={cn("flex shrink-0 border-t border-border p-3", collapsed ? "flex-col items-center gap-2" : "flex-col gap-2")}>
-        {!collapsed && (
-          <button
-            onClick={onOpenConnect}
-            className="group flex w-full items-center gap-2.5 rounded-md border border-border bg-card px-2.5 py-2 transition-colors hover:bg-muted"
+        {workspaceProfile && (
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              collapsed ? "justify-center" : "rounded-md px-1 py-1",
+            )}
           >
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                workspaceConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-amber-500/70",
-              )}
-            />
-            <div className="flex min-w-0 flex-col text-left leading-tight">
+            {workspaceProfile.avatarUrl ? (
+              <img
+                src={workspaceProfile.avatarUrl}
+                alt={workspaceProfile.name ? `${workspaceProfile.name} profile` : "Notion profile"}
+                className="h-8 w-8 rounded-full border border-border object-cover"
+              />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground">
+                {(workspaceProfile.name ?? "N").slice(0, 1).toUpperCase()}
+              </div>
+            )}
+            {!collapsed && (
+              <div className="min-w-0 text-left leading-tight">
+                <div className="truncate text-xs font-medium">{workspaceProfile.name ?? "Notion user"}</div>
+                <div className="text-[10px] text-muted-foreground">Connected profile</div>
+              </div>
+            )}
+          </div>
+        )}
+        {!collapsed && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenConnect}
+              className="group flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 transition-colors hover:bg-muted"
+            >
+              <span
+                className={cn(
+                  "h-2 w-2 shrink-0 rounded-full",
+                  workspaceConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-amber-500/70",
+                )}
+              />
               <span className="truncate text-xs font-medium">{workspaceLabel}</span>
-              <span className="text-[10px] text-muted-foreground">
-                {workspaceConnected ? "Live - manage" : "Click to connect"}
-              </span>
-            </div>
-            <Plug className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-          </button>
+              <Plug className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              aria-label="Settings"
+              onClick={onOpenSettings}
+              data-tour="settings-button"
+            >
+              <Settings className="h-[18px] w-[18px]" />
+            </Button>
+          </div>
         )}
 
         <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-end")}>
@@ -171,25 +212,13 @@ export function Sidebar({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className={cn("h-8 w-8", !collapsed && "hidden")}
             aria-label="Settings"
             onClick={onOpenSettings}
             data-tour="settings-button"
           >
-            <Settings className="h-3.5 w-3.5" />
+            <Settings className="h-4 w-4" />
           </Button>
-          {onCollapsedChange && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={() => onCollapsedChange(!collapsed)}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-            </Button>
-          )}
         </div>
       </div>
 

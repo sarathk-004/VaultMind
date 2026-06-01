@@ -87,7 +87,8 @@ export async function POST(req: NextRequest) {
 
     const snapshot = await getWorkspaceSnapshot(token, {
       ...providerOptionsFromSettings(llmSettings),
-      budgetMs: llmConfigured ? 12_000 : 2_500,
+      budgetMs: 2_500,
+      skipLlmClassification: true,
     })
     const contentLimit = contentLimitForIntent(intentKey)
     const orchestration = await orchestrateQuery({
