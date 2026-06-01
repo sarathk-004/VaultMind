@@ -112,8 +112,8 @@ export function ChatInput({
                   className={cn(
                     "flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors sm:h-7",
                     active
-                      ? "bg-muted/70 text-foreground ring-1 ring-border/70"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/55",
+                      ? "bg-accent text-accent-foreground ring-1 ring-accent/80"
+                      : "text-muted-foreground hover:bg-accent/55 hover:text-accent-foreground",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" aria-hidden />

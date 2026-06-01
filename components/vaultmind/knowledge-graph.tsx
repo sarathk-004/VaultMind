@@ -1,9 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Maximize2, Minimize2, Network, Loader2, ZoomIn, ZoomOut, Locate } from "lucide-react"
+import { Maximize2, Minimize2, Network, ZoomIn, ZoomOut, Locate } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { KnowledgeGraph } from "@/lib/vaultmind-types"
 import {
   buildAdjacency,
@@ -569,10 +570,15 @@ function GraphCanvas({
         }}
       >
         {workspaceLoading && (
-          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground pointer-events-none">
-            <div className="flex items-center gap-2 text-xs">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              <span>Fetching workspace from Notion…</span>
+          <div className="absolute inset-0 pointer-events-none p-6">
+            <div className="relative h-full w-full">
+              <Skeleton className="absolute left-[12%] top-[14%] h-9 w-32" />
+              <Skeleton className="absolute right-[14%] top-[24%] h-9 w-36" />
+              <Skeleton className="absolute left-[24%] top-[46%] h-9 w-28" />
+              <Skeleton className="absolute right-[20%] top-[58%] h-9 w-32" />
+              <Skeleton className="absolute left-[38%] top-[72%] h-9 w-36" />
+              <div className="absolute left-[28%] right-[24%] top-[34%] h-px bg-accent/70 animate-pulse" />
+              <div className="absolute left-[36%] right-[30%] top-[55%] h-px bg-accent/70 animate-pulse" />
             </div>
           </div>
         )}

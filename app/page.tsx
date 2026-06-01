@@ -31,6 +31,8 @@ const SEED_HISTORY: ChatHistoryItem[] = []
 const WALKTHROUGH_STORAGE_KEY = "graphyne.walkthrough.v2.seen"
 const CHAT_HISTORY_STORAGE_KEY = "graphyne.chat.history.v1"
 const ACTIVE_CHAT_STORAGE_KEY = "graphyne.chat.active.v1"
+const WORKSPACE_CACHE_STORAGE_KEY = "graphyne.workspace.snapshot.v1"
+const WORKSPACE_CACHE_TTL = 15 * 60_000
 const REQUIRE_NOTION_LOGIN = true
 const MAX_PERSISTED_CHATS = 30
 const MAX_PERSISTED_GRAPH_NODES = 24
@@ -137,6 +139,31 @@ interface WorkspaceState {
   } | null
 }
 
+type CachedWorkspaceState = Omit<WorkspaceState, "loading"> & { cachedAt: number }
+
+function readCachedWorkspace(): CachedWorkspaceState | null {
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_CACHE_STORAGE_KEY)
+    if (!raw) return null
+    const cached = JSON.parse(raw) as CachedWorkspaceState
+    if (!cached || Date.now() - cached.cachedAt > WORKSPACE_CACHE_TTL) return null
+    return cached
+  } catch {
+    return null
+  }
+}
+
+function writeCachedWorkspace(next: Omit<WorkspaceState, "loading">): void {
+  try {
+    window.localStorage.setItem(
+      WORKSPACE_CACHE_STORAGE_KEY,
+      JSON.stringify({ ...next, cachedAt: Date.now() }),
+    )
+  } catch {
+    // Workspace cache is a latency optimization only.
+  }
+}
+
 function GraphynePage() {
   const isMobile = useIsMobile()
   const searchParams = useSearchParams()
@@ -164,6 +191,11 @@ function GraphynePage() {
         profile: data.profile ?? null,
       }
       setWorkspace(next)
+      writeCachedWorkspace({
+        graph: next.graph,
+        connected: next.connected,
+        profile: next.profile,
+      })
     } catch (err) {
       console.error("[v0] Failed to load workspace:", err)
       setWorkspace({ graph: null, loading: false, connected: false, profile: null })
@@ -171,6 +203,17 @@ function GraphynePage() {
   }, [])
 
   useEffect(() => {
+    const cached = readCachedWorkspace()
+    if (cached) {
+      setWorkspace({
+        graph: cached.graph,
+        loading: false,
+        connected: cached.connected,
+        profile: cached.profile ?? null,
+      })
+      void reloadWorkspace({ silent: true })
+      return
+    }
     void reloadWorkspace()
   }, [reloadWorkspace])
 

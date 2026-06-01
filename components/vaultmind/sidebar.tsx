@@ -27,6 +27,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/vaultmind/confirm-dialog"
 import { cn } from "@/lib/utils"
 import type { ChatHistoryItem } from "@/lib/vaultmind-types"
@@ -47,6 +49,7 @@ interface SidebarProps {
     name?: string | null
     avatarUrl?: string | null
   } | null
+  workspaceLoading?: boolean
   collapsed?: boolean
   onCollapsedChange?: (collapsed: boolean) => void
 }
@@ -63,11 +66,13 @@ export function Sidebar({
   workspaceLabel = "Notion Workspace",
   workspaceConnected = true,
   workspaceProfile = null,
+  workspaceLoading = false,
   collapsed = false,
   onCollapsedChange,
 }: SidebarProps) {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchOpen, setSearchOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
@@ -125,45 +130,96 @@ export function Sidebar({
           <BrandMark className="h-7 w-7" />
           {!collapsed && <span className="text-md font-semibold tracking-tight">graphyne</span>}
         </button>
-        {onCollapsedChange && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={() => onCollapsedChange(!collapsed)}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </Button>
-        )}
+        <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+          <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Search chats"
+                title="Search chats"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="right"
+              align={collapsed ? "center" : "start"}
+              sideOffset={10}
+              className="w-72 p-3"
+            >
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={event => setSearchQuery(event.target.value)}
+                  placeholder="Search chats"
+                  className="h-8 pl-8 text-xs"
+                  autoFocus
+                />
+              </div>
+              <div className="mt-2 max-h-72 overflow-y-auto">
+                {history.length === 0 ? (
+                  <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                    Your conversations will appear here.
+                  </p>
+                ) : visibleHistory.length === 0 ? (
+                  <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                    No chats match your search.
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {visibleHistory.map(chat => (
+                      <li key={chat.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectChat(chat.id)
+                            setSearchOpen(false)
+                          }}
+                          className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/55 hover:text-accent-foreground"
+                        >
+                          <div className="truncate text-xs font-medium">{chat.title}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {chat.preview || "No messages yet"}
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+          {onCollapsedChange && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={() => onCollapsedChange(!collapsed)}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-        <div className={cn("mb-2 flex items-center", collapsed ? "justify-center" : "justify-end px-2")}>
+        <div className={cn("mb-2 flex items-center", collapsed ? "justify-center" : "px-2")}>
           <Button
             variant="outline"
             size={collapsed ? "icon" : "sm"}
             onClick={onNewChat}
-            className={cn("h-8 text-xs", collapsed ? "w-8 px-0" : "px-3")}
+            className={cn("h-8 text-xs", collapsed ? "w-8 px-0" : "w-full justify-start px-3")}
             aria-label="New chat"
           >
             <Plus className="h-3.5 w-3.5" />
             {!collapsed && <span className="ml-1">New chat</span>}
           </Button>
         </div>
-
-        {!collapsed && (
-          <div className="relative mb-2 px-2">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={event => setSearchQuery(event.target.value)}
-              placeholder="Search chats"
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
-        )}
 
         {collapsed ? null : history.length === 0 ? (
           <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
@@ -203,17 +259,30 @@ export function Sidebar({
             <button
               type="button"
               className={cn(
-                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
-                collapsed ? "justify-center p-1" : "px-1 py-1 text-left",
+                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-accent/55 hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-muted-foreground/20",
+                collapsed ? "justify-center p-1" : "w-full px-1 py-1 text-left",
               )}
               aria-label="Account menu"
               data-tour="account-button"
             >
-              <ProfileAvatar profile={workspaceProfile} />
+              {workspaceLoading ? (
+                <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
+              ) : (
+                <ProfileAvatar profile={workspaceProfile} />
+              )}
               {!collapsed && (
                 <div className="min-w-0 text-left leading-tight">
-                  <div className="truncate text-xs font-medium">{workspaceProfile?.name ?? "Account"}</div>
-                  <div className="text-[10px] text-muted-foreground">{workspaceLabel}</div>
+                  {workspaceLoading ? (
+                    <>
+                      <Skeleton className="mb-1 h-3 w-24" />
+                      <Skeleton className="h-2.5 w-20" />
+                    </>
+                  ) : (
+                    <>
+                      <div className="truncate text-xs font-medium">{workspaceProfile?.name ?? "Account"}</div>
+                      <div className="text-[10px] text-muted-foreground">{workspaceLabel}</div>
+                    </>
+                  )}
                 </div>
               )}
             </button>

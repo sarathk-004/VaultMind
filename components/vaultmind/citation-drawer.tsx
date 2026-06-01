@@ -1,6 +1,6 @@
 "use client"
 
-import { ExternalLink, FileText, Loader2 } from "lucide-react"
+import { ExternalLink, FileText } from "lucide-react"
 import { useEffect, useState } from "react"
 import {
   Sheet,
@@ -9,6 +9,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { getNodeColor } from "@/lib/graph-layout"
 import type { KnowledgeGraph, NoteContent } from "@/lib/vaultmind-types"
 
@@ -20,6 +21,36 @@ interface CitationDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onJumpToNode: (nodeId: string) => void
+}
+
+const PAGE_CONTENT_CACHE_KEY = "graphyne.page.content.v1"
+const PAGE_CONTENT_CACHE_TTL = 10 * 60_000
+
+type CachedPageContent = NoteContent & { cachedAt: number }
+
+function readCachedPage(nodeId: string): NoteContent | null {
+  try {
+    const raw = window.localStorage.getItem(PAGE_CONTENT_CACHE_KEY)
+    if (!raw) return null
+    const cache = JSON.parse(raw) as Record<string, CachedPageContent>
+    const hit = cache[nodeId]
+    if (!hit || Date.now() - hit.cachedAt > PAGE_CONTENT_CACHE_TTL) return null
+    const { cachedAt: _cachedAt, ...note } = hit
+    return note
+  } catch {
+    return null
+  }
+}
+
+function writeCachedPage(nodeId: string, note: NoteContent): void {
+  try {
+    const raw = window.localStorage.getItem(PAGE_CONTENT_CACHE_KEY)
+    const cache = raw ? (JSON.parse(raw) as Record<string, CachedPageContent>) : {}
+    cache[nodeId] = { ...note, cachedAt: Date.now() }
+    window.localStorage.setItem(PAGE_CONTENT_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // Page cache is opportunistic.
+  }
 }
 
 /**
@@ -424,15 +455,18 @@ export function CitationDrawer({
       return
     }
     let cancelled = false
-    setLoading(true)
+    const cached = readCachedPage(nodeId)
+    if (cached) setNote(cached)
+    else setNote(null)
+    setLoading(!cached)
     setError(null)
-    setNote(null)
     fetch(`/api/vaultmind/page/${encodeURIComponent(nodeId)}`)
       .then(async res => {
         if (!res.ok) throw new Error(`Status ${res.status}`)
         return res.json()
       })
       .then((data: NoteContent) => {
+        writeCachedPage(nodeId, data)
         if (!cancelled) setNote(data)
       })
       .catch(err => {
@@ -493,9 +527,11 @@ export function CitationDrawer({
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              Loading from Notion…
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-24 w-full" />
             </div>
           )}
 
