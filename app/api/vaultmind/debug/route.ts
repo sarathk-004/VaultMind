@@ -2,23 +2,26 @@ import { NextResponse } from "next/server"
 import { isNotionConnected, notionFetch } from "@/lib/notion-client"
 import type { NotionSearchResponse } from "@/lib/notion-client"
 import { getRequestNotionOAuthCookie, getRequestNotionToken } from "@/lib/notion-token"
+import { forbiddenJson, requireAuthenticatedApi } from "@/lib/api-security"
 
 export async function GET() {
+  if (process.env.NODE_ENV === "production") {
+    return forbiddenJson("Debug endpoint is disabled in production")
+  }
+
   const userToken = await getRequestNotionToken()
+  const authError = requireAuthenticatedApi(userToken)
+  if (authError) return authError
+
   const oauthCookie = await getRequestNotionOAuthCookie()
-  const effectiveToken = userToken ?? process.env.NOTION_API_KEY ?? null
   const hasKey = isNotionConnected(userToken)
   const tokenSource = userToken ? "oauth" : process.env.NOTION_API_KEY ? "env" : "none"
-  const keyPreview = effectiveToken
-    ? `${effectiveToken.slice(0, 10)}...${effectiveToken.slice(-4)}`
-    : "NOT SET"
 
   if (!hasKey) {
     return NextResponse.json({
       ok: false,
       hasKey: false,
       tokenSource,
-      keyPreview: "NOT SET",
       error: "No Notion connection",
       help: "Click 'Connect Notion' to authorize Graphyne from your Notion workspace.",
     })
@@ -36,7 +39,6 @@ export async function GET() {
         ok: false,
         hasKey: true,
         tokenSource,
-        keyPreview,
         workspaceName: oauthCookie?.workspaceName,
         error: "Connected to Notion, but no pages found",
         help:
@@ -47,7 +49,6 @@ export async function GET() {
       ok: true,
       hasKey: true,
       tokenSource,
-      keyPreview,
       workspaceName: oauthCookie?.workspaceName,
       pagesFound: pageCount,
       message: `Connected. ${pageCount}+ accessible page(s).`,
@@ -57,10 +58,8 @@ export async function GET() {
       ok: false,
       hasKey: true,
       tokenSource,
-      keyPreview,
       workspaceName: oauthCookie?.workspaceName,
       error: "Notion rejected the token",
-      details: error instanceof Error ? error.message : String(error),
       help: "Disconnect and connect Notion again. If this persists, check your Notion OAuth app settings.",
     })
   }

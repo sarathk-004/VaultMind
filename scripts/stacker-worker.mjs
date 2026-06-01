@@ -1,10 +1,14 @@
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 const intervalMs = Number(process.env.STACKER_WORKER_INTERVAL_MS ?? 5 * 60_000)
+const syncSecret = process.env.STACKER_SYNC_SECRET
 
 async function syncOnce() {
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/vaultmind/sync`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(syncSecret ? { Authorization: `Bearer ${syncSecret}` } : {}),
+    },
   })
   const body = await res.text()
   if (!res.ok) throw new Error(`Sync failed with ${res.status}: ${body}`)

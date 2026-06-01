@@ -1,15 +1,29 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { fetchPageContent } from "@/lib/notion-retriever"
 import { getRequestNotionToken } from "@/lib/notion-token"
+import { rateLimit, requireAuthenticatedApi } from "@/lib/api-security"
+
+const NOTION_ID_RE = /^[0-9a-f]{32}$/i
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const limited = rateLimit(req, { limit: 40 })
+    if (limited) return limited
+
     const { id } = await params
+    const cleanId = id.replace(/-/g, "")
+    if (!NOTION_ID_RE.test(cleanId)) {
+      return NextResponse.json({ error: "Invalid page id" }, { status: 400 })
+    }
+
     const token = await getRequestNotionToken()
-    const content = await fetchPageContent(id, token)
+    const authError = requireAuthenticatedApi(token)
+    if (authError) return authError
+
+    const content = await fetchPageContent(cleanId, token)
     if (!content) {
       return NextResponse.json({ error: "Page not found" }, { status: 404 })
     }

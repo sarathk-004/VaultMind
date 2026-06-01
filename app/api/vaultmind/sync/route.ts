@@ -1,12 +1,19 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { providerOptionsFromSettings } from "@/lib/llm-client"
 import { getRequestLlmSettings, hasAvailableLlmProvider } from "@/lib/llm-settings"
 import { getWorkspaceSnapshot } from "@/lib/notion-retriever"
 import { getRequestNotionToken } from "@/lib/notion-token"
 import { getStackerConfig } from "@/lib/stacker/config"
 import { isStackerEnabled, syncStackerWorkspace } from "@/lib/stacker/service"
+import { rateLimit, requireSyncAuthorization } from "@/lib/api-security"
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const authorizationError = requireSyncAuthorization(req)
+  if (authorizationError) return authorizationError
+
+  const limited = rateLimit(req, { limit: 4 })
+  if (limited) return limited
+
   const config = getStackerConfig()
   if (!isStackerEnabled(config)) {
     return NextResponse.json({
@@ -28,7 +35,7 @@ export async function POST() {
     console.error("[stacker] Sync worker failed:", error)
     return NextResponse.json({
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: "Sync failed",
     }, { status: 500 })
   }
 }

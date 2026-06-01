@@ -2,6 +2,8 @@ import { cookies } from "next/headers"
 
 export const LLM_SETTINGS_COOKIE = "vm_llm_settings"
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+const MAX_MODEL_LENGTH = 128
+const MAX_KEY_LENGTH = 4096
 
 export const LLM_PROVIDERS = [
   "auto",
@@ -72,7 +74,7 @@ export function normalizeLlmSettings(input: unknown, previous?: LlmSettings): Ll
   const obj = input && typeof input === "object" ? input as Record<string, unknown> : {}
   const provider = sanitizeProvider(obj.provider)
   const rawModel = typeof obj.model === "string" ? obj.model.trim() : ""
-  const model = rawModel || DEFAULT_MODELS[provider]
+  const model = (rawModel || DEFAULT_MODELS[provider]).slice(0, MAX_MODEL_LENGTH)
   const rawKeys = obj.keys && typeof obj.keys === "object" ? obj.keys as Record<string, unknown> : {}
   const prevKeys = previous?.keys ?? {}
   const keys: LlmSettings["keys"] = { ...prevKeys }
@@ -84,7 +86,7 @@ export function normalizeLlmSettings(input: unknown, previous?: LlmSettings): Ll
       delete keys[providerKey]
     } else if (typeof value === "string") {
       const trimmed = value.trim()
-      if (trimmed) keys[providerKey] = trimmed
+      if (trimmed) keys[providerKey] = trimmed.slice(0, MAX_KEY_LENGTH)
     }
   }
 

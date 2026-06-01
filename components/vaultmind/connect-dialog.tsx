@@ -42,7 +42,7 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
   const refreshStatus = async () => {
     setStatusLoading(true)
     try {
-      const res = await fetch("/api/vaultmind/debug")
+      const res = await fetch("/api/vaultmind/connect", { cache: "no-store" })
       const data = (await res.json()) as DebugStatus
       setStatus(data)
     } catch (err) {
@@ -141,8 +141,10 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
               <span className="flex items-start gap-1.5">
                 <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" />
                 <span>
-                  <strong className="font-medium">Connected.</strong> {status?.pagesFound}+
-                  page(s) accessible
+                  <strong className="font-medium">Connected.</strong>{" "}
+                  {typeof status?.pagesFound === "number"
+                    ? `${status.pagesFound}+ page(s) accessible`
+                    : "Workspace authorization is active"}
                   {status?.workspaceName ? ` in ${status.workspaceName}.` : "."}
                 </span>
               </span>

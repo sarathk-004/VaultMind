@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { getWorkspaceSnapshot, snapshotToGraph } from "@/lib/notion-retriever"
 import { isNotionConnected } from "@/lib/notion-client"
 import { getRequestNotionToken } from "@/lib/notion-token"
@@ -6,10 +6,17 @@ import { providerOptionsFromSettings } from "@/lib/llm-client"
 import { getRequestLlmSettings, hasAvailableLlmProvider } from "@/lib/llm-settings"
 import { getStackerConfig } from "@/lib/stacker/config"
 import { getStackerWorkspaceGraph, isStackerEnabled } from "@/lib/stacker/service"
+import { rateLimit, requireAuthenticatedApi } from "@/lib/api-security"
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const limited = rateLimit(req, { limit: 20 })
+    if (limited) return limited
+
     const token = await getRequestNotionToken()
+    const authError = requireAuthenticatedApi(token)
+    if (authError) return authError
+
     const llmSettings = await getRequestLlmSettings()
     const snap = await getWorkspaceSnapshot(token, {
       ...providerOptionsFromSettings(llmSettings),
@@ -32,7 +39,7 @@ export async function GET() {
   } catch (error) {
     console.error("[v0] Workspace fetch error:", error)
     return NextResponse.json(
-      { error: "Failed to fetch workspace", details: error instanceof Error ? error.message : String(error) },
+      { error: "Failed to fetch workspace" },
       { status: 500 },
     )
   }

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 const NOTION_BASE = "https://api.notion.com/v1"
 const NOTION_VERSION = "2022-06-28"
 
@@ -147,7 +149,5 @@ export function tokenKey(token?: string | null): string {
   const k = token ?? process.env.NOTION_API_KEY ?? ""
   if (!k) return "none"
   // Cheap non-crypto hash — enough to namespace caches in-memory.
-  let h = 5381
-  for (let i = 0; i < k.length; i++) h = ((h << 5) + h + k.charCodeAt(i)) | 0
-  return `t_${(h >>> 0).toString(36)}`
+  return `t_${createHash("sha256").update(k).digest("base64url").slice(0, 32)}`
 }

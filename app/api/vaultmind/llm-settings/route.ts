@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import {
   getPublicLlmSettings,
   getRequestLlmSettings,
@@ -7,24 +7,27 @@ import {
   normalizeLlmSettings,
   serializeSettingsCookie,
 } from "@/lib/llm-settings"
+import { rateLimit, requireSameOrigin } from "@/lib/api-security"
 
 export async function GET() {
   return NextResponse.json(await getPublicLlmSettings())
 }
 
-function isSecureRequest(req: Request): boolean {
-  if (req.url.startsWith("https://")) return true
-  const forwarded = req.headers.get("x-forwarded-proto")
-  return forwarded === "https"
-}
+export async function POST(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
 
-export async function POST(req: Request) {
+  const limited = rateLimit(req, { limit: 10 })
+  if (limited) return limited
+
   const previous = await getRequestLlmSettings()
-  const settings = normalizeLlmSettings(await req.json(), previous)
-  const cookieOptions = {
-    ...llmSettingsCookieOptions(),
-    secure: llmSettingsCookieOptions().secure && isSecureRequest(req),
+  const payload = await req.json().catch(() => null)
+  if (!payload || typeof payload !== "object") {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 })
   }
+
+  const settings = normalizeLlmSettings(payload, previous)
+  const cookieOptions = llmSettingsCookieOptions()
   const res = NextResponse.json({
     ok: true,
     provider: settings.provider,
@@ -45,11 +48,14 @@ export async function POST(req: Request) {
   return res
 }
 
-export async function DELETE(req: Request) {
-  const cookieOptions = {
-    ...llmSettingsCookieOptions(),
-    secure: llmSettingsCookieOptions().secure && isSecureRequest(req),
-  }
+export async function DELETE(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
+
+  const limited = rateLimit(req, { limit: 10 })
+  if (limited) return limited
+
+  const cookieOptions = llmSettingsCookieOptions()
   const res = NextResponse.json({ ok: true })
   res.cookies.set(LLM_SETTINGS_COOKIE, "", {
     ...cookieOptions,

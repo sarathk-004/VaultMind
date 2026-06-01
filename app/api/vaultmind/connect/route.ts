@@ -8,6 +8,7 @@ import {
   notionTokenCookieOptions,
 } from "@/lib/notion-token"
 import { clearTokenCaches } from "@/lib/notion-retriever"
+import { rateLimit, requireSameOrigin } from "@/lib/api-security"
 
 function normalizeUrl(value: string) {
   const raw = value.trim()
@@ -28,6 +29,12 @@ function getRedirectUri(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
+
+  const limited = rateLimit(req, { limit: 10 })
+  if (limited) return limited
+
   const clientId = process.env.NOTION_OAUTH_CLIENT_ID
   if (!clientId) {
     return NextResponse.json(
@@ -55,7 +62,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, authorizeUrl: authorizeUrl.toString() })
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  const originError = requireSameOrigin(req)
+  if (originError) return originError
+
+  const limited = rateLimit(req, { limit: 10 })
+  if (limited) return limited
+
   const store = await cookies()
   const existing = store.get(NOTION_TOKEN_COOKIE)?.value
   if (existing) clearTokenCaches(existing)
@@ -68,9 +81,13 @@ export async function GET() {
   const store = await cookies()
   const token = store.get(NOTION_TOKEN_COOKIE)?.value
   const oauthCookie = await getRequestNotionOAuthCookie()
+  const connected = Boolean(token)
   return NextResponse.json({
-    connected: Boolean(token),
+    ok: connected,
+    hasKey: connected || Boolean(process.env.NOTION_API_KEY),
+    connected,
     source: token ? "oauth" : process.env.NOTION_API_KEY ? "env" : "none",
+    tokenSource: token ? "oauth" : process.env.NOTION_API_KEY ? "env" : "none",
     workspaceName: oauthCookie?.workspaceName,
   })
 }
