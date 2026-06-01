@@ -18,10 +18,9 @@ interface SimNode {
 
 const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
-// Wider repulsion radius so unrelated nodes have visible breathing room.
-// Edges are what bring linked pages back together.
-const MIN_SEPARATION = 300
-const COLLISION_PADDING = 36
+// Keep unrelated nodes readable without letting sparse pages drift too far.
+const MIN_SEPARATION = 220
+const COLLISION_PADDING = 24
 
 function seededRandom(seed: string) {
   let h = 0
@@ -76,8 +75,8 @@ export function simulateLayout(
 
   const minSize = Math.min(width, height)
   // Spread them out much wider initially so they don't start in a pile
-  const innerRadius = multiClusters.length > 1 ? minSize * 0.35 : 0
-  const outerRadius = minSize * 0.65
+  const innerRadius = multiClusters.length > 1 ? minSize * 0.28 : 0
+  const outerRadius = minSize * 0.42
   const anchors = new Map<string, { x: number; y: number }>()
 
   multiClusters.forEach((c, i) => {
@@ -104,7 +103,7 @@ export function simulateLayout(
     const a = anchors.get(cluster)!
     const isSingleton = (clusterSize.get(cluster) ?? 1) === 1
     // Larger spawn radius per cluster
-    const localR = isSingleton ? 100 + rand() * 200 : 50 + rand() * 150
+    const localR = isSingleton ? 70 + rand() * 110 : 40 + rand() * 90
     const localAngle = rand() * Math.PI * 2
     return {
       id: n.id,
@@ -122,10 +121,10 @@ export function simulateLayout(
   const validEdges = edges.filter(e => idIndex.has(e.from) && idIndex.has(e.to))
 
   // Rebalanced physics: high repulsion, gentle springs, weak gravity
-  const repulsionStrength = 40000 
-  const springStrength = 0.05 
-  const centerStrength = 0.0005
-  const clusterStrength = 0.005
+  const repulsionStrength = 26000 
+  const springStrength = 0.065 
+  const centerStrength = 0.0012
+  const clusterStrength = 0.008
   const damping = 0.75 
 
   for (let iter = 0; iter < iterations; iter++) {
@@ -203,7 +202,7 @@ export function simulateLayout(
     }
 
     // 3. Springs (Pull together)
-    const edgeLength = 220
+    const edgeLength = 175
     for (const edge of validEdges) {
       const a = sim[idIndex.get(edge.from)!]
       const b = sim[idIndex.get(edge.to)!]

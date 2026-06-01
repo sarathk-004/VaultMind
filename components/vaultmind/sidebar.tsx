@@ -49,7 +49,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-full flex-col border-border bg-sidebar md:shrink-0 md:border-r transition-[width] duration-200",
+        "flex h-full w-full flex-col border-border bg-sidebar md:shrink-0 md:border-r transition-[width] duration-300 ease-out",
         collapsed ? "md:w-[56px]" : "md:w-[260px]",
       )}
     >
@@ -110,7 +110,7 @@ export function Sidebar({
                     <button
                       onClick={() => onSelectChat(chat.id)}
                       className={cn(
-                        "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                        "w-full rounded-md px-2.5 py-2 text-left transition-all duration-200 ease-out",
                         active
                           ? "bg-accent text-accent-foreground dark:bg-sidebar-accent dark:text-sidebar-accent-foreground"
                           : "text-foreground/90 hover:bg-muted",
@@ -149,32 +149,6 @@ export function Sidebar({
       </div>
 
       <div className={cn("flex shrink-0 border-t border-border p-3", collapsed ? "flex-col items-center gap-2" : "flex-col gap-2")}>
-        {workspaceProfile && (
-          <div
-            className={cn(
-              "flex items-center gap-2",
-              collapsed ? "justify-center" : "rounded-md px-1 py-1",
-            )}
-          >
-            {workspaceProfile.avatarUrl ? (
-              <img
-                src={workspaceProfile.avatarUrl}
-                alt={workspaceProfile.name ? `${workspaceProfile.name} profile` : "Notion profile"}
-                className="h-8 w-8 rounded-full border border-border object-cover"
-              />
-            ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground">
-                {(workspaceProfile.name ?? "N").slice(0, 1).toUpperCase()}
-              </div>
-            )}
-            {!collapsed && (
-              <div className="min-w-0 text-left leading-tight">
-                <div className="truncate text-xs font-medium">{workspaceProfile.name ?? "Notion user"}</div>
-                <div className="text-[10px] text-muted-foreground">Connected profile</div>
-              </div>
-            )}
-          </div>
-        )}
         {!collapsed && (
           <div className="flex items-center gap-2">
             <button
@@ -220,6 +194,33 @@ export function Sidebar({
             <Settings className="h-4 w-4" />
           </Button>
         </div>
+
+        {workspaceProfile && (
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              collapsed ? "justify-center" : "rounded-md px-1 py-1",
+            )}
+          >
+            {workspaceProfile.avatarUrl ? (
+              <img
+                src={workspaceProfile.avatarUrl}
+                alt={workspaceProfile.name ? `${workspaceProfile.name} profile` : "Notion profile"}
+                className="h-8 w-8 rounded-full border border-border object-cover"
+              />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-medium text-muted-foreground">
+                {(workspaceProfile.name ?? "N").slice(0, 1).toUpperCase()}
+              </div>
+            )}
+            {!collapsed && (
+              <div className="min-w-0 text-left leading-tight">
+                <div className="truncate text-xs font-medium">{workspaceProfile.name ?? "Notion user"}</div>
+                <div className="text-[10px] text-muted-foreground">Connected profile</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <ConfirmDialog

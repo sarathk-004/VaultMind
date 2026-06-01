@@ -123,11 +123,11 @@ function GraphCanvas({
   const virtualSize = useMemo(() => {
     const n = renderGraph?.nodes.length ?? 0
     if (n === 0) return { w: 1200, h: 800 }
-    // Target ~270px of breathing room per node (matches MIN_SEPARATION in graph-layout).
-    const PER_NODE_AREA = 270 * 270
+    // Keep enough room for labels without making sparse pages feel marooned.
+    const PER_NODE_AREA = 220 * 220
     const totalArea = n * PER_NODE_AREA
-    const side = Math.sqrt(totalArea) * 1.45
-    const h = Math.max(700, side)
+    const side = Math.sqrt(totalArea) * 1.25
+    const h = Math.max(620, side)
     // Slightly wider than tall reads better for force-directed graphs.
     return { w: h * 1.4, h }
   }, [renderGraph])

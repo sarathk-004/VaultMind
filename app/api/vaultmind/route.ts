@@ -20,11 +20,11 @@ import { isStackerEnabled } from "@/lib/stacker/service"
 
 const INTENT_INSTRUCTIONS: Record<Intent, string> = {
   search:
-    "The user wants to find pages, databases, tasks, and notes related to their query. List what you found, grouped by type, and guide them to open citations or explore the graph.",
+    "The user wants to find matching pages, databases, tasks, and notes. Return a concise list of page titles with a short reason each matched. Do not include long text excerpts, related-node sections, graph relationship tables, or phrases like 'related to'; citations and the graph already show those connections.",
   summarize:
     "The user wants a concise summary of a single page or topic. Summarize the most relevant page only. Do not list search results.",
   connect:
-    "The user wants to understand how ideas or resources relate to each other. Explain connections and the grounds for each connection. Do not list search results.",
+    "The user wants to understand how ideas or resources connect. Give the connected pages and a short why for each connection when possible. Avoid generic 'related to' phrasing.",
   brief:
     "The user wants a daily briefing. Find items tied to today's date in their Notion data and summarize what is planned for today.",
 }
@@ -198,10 +198,10 @@ Retrieved context:
 
 ${contextDocs.length > 0 ? contextDocs : "_(No matching pages found in workspace)_"}
 
-Graph contains ${graph.nodes.length} nodes: ${graph.nodes.map(node => node.label).join(", ")}
-${edgeSummary ? `\nTop graph edges:\n${edgeSummary}` : ""}
+Graph contains ${graph.nodes.length} citation nodes: ${graph.nodes.map(node => node.label).join(", ")}
+${intent === "search" ? "" : edgeSummary ? `\nTop graph edges:\n${edgeSummary}` : ""}
 
-When source content includes markdown tables, database rows, checklists, quotes, callouts, links, or code blocks, preserve that structure in the answer instead of flattening it into prose.
+For search intent, do not reproduce page text or graph relationship lists; list matching pages with a compact reason. For summarize, connect, and brief intents, preserve useful source structure such as tables, database rows, checklists, quotes, callouts, links, or code blocks when it helps the answer.
 
 Return JSON in exactly this shape:
 { "answer": "markdown answer text" }`,

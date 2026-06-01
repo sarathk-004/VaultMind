@@ -81,6 +81,12 @@ export function synthesizeAnswer(
     return lines.slice(0, 2).join(" ").slice(0, 200)
   }
 
+  const searchReason = (c: SynthContent) => {
+    const preview = shortPreview(c)
+    if (preview) return preview.length > 140 ? preview.slice(0, 137) + "..." : preview
+    return `Matched by title or workspace links as a ${c.type}.`
+  }
+
   switch (intent) {
     case "summarize": {
       const top = contents[0]
@@ -100,7 +106,7 @@ export function synthesizeAnswer(
       const lines: string[] = [
         `## Connections for "${message}"`,
         "",
-        `Found ${contents.length} related items: ${titles}.`,
+        `Found ${contents.length} connected items: ${titles}.`,
         "",
       ]
       const edges = graph.edges.slice(0, 10)
@@ -114,7 +120,8 @@ export function synthesizeAnswer(
         for (const e of edges) {
           const from = graph.nodes.find(n => n.id === e.from)?.label ?? e.from
           const to = graph.nodes.find(n => n.id === e.to)?.label ?? e.to
-          lines.push(`| **${from}** | ${e.relation ?? "links to"} | **${to}** |`)
+          const relation = e.relation === "relates to" ? "connects with" : e.relation ?? "links to"
+          lines.push(`| **${from}** | ${relation} | **${to}** |`)
         }
       }
       return lines.join("\n")
@@ -150,10 +157,7 @@ export function synthesizeAnswer(
         "",
       ]
       for (const c of contents.slice(0, 6)) {
-        lines.push(`### **${c.title}**`)
-        const snippet = getSnippet(c, 10)
-        if (snippet) lines.push(snippet)
-        lines.push("")
+        lines.push(`- **${c.title}** - ${searchReason(c)}`)
       }
       return lines.join("\n").trim()
     }
