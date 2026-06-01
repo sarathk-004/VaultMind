@@ -5,7 +5,10 @@ const DEFAULT_API_RATE_LIMIT = 30
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>()
 
 export function isLoginRequired(): boolean {
-  return process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_REQUIRE_NOTION_LOGIN === "true"
+  const flag = process.env.NEXT_PUBLIC_REQUIRE_NOTION_LOGIN
+  if (process.env.NODE_ENV !== "production") return flag === "true"
+  if (typeof flag === "undefined") return true
+  return flag === "true"
 }
 
 export function unauthorizedJson(message = "Authentication required") {
@@ -19,6 +22,11 @@ export function forbiddenJson(message = "Forbidden") {
 export function requireAuthenticatedApi(token: string | null): NextResponse | null {
   if (!isLoginRequired()) return null
   return token ? null : unauthorizedJson()
+}
+
+export function requireWorkspaceId(workspaceId: string | null | undefined): NextResponse | null {
+  if (process.env.NODE_ENV !== "production") return null
+  return workspaceId ? null : forbiddenJson("workspace_id is required")
 }
 
 export function requireSameOrigin(req: Request): NextResponse | null {

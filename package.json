@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "stacker:worker": "node scripts/stacker-worker.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "eval": "node scripts/eval-harness.mjs",
+    "ci": "pnpm run typecheck && pnpm run eval"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

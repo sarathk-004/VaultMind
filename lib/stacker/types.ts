@@ -1,7 +1,7 @@
 import type { GraphEdge, GraphNode, Intent, KnowledgeGraph, NodeType } from "@/lib/vaultmind-types"
 
 export type StackerStoreKind = "memory" | "postgres-pgvector"
-export type StackerGraphKind = "memory" | "neo4j"
+export type StackerGraphKind = "memory" | "neo4j" | "postgres"
 export type StackerVectorKind = "memory" | "chroma" | "pgvector"
 export type StackerCacheKind = "memory" | "redis"
 
@@ -16,6 +16,7 @@ export interface StackerConfig {
 export interface StackerDocument {
   id: string
   userKey: string
+  workspaceId: string
   source: "notion" | "mock"
   title: string
   type: NodeType | string
@@ -28,6 +29,7 @@ export interface StackerChunk {
   id: string
   documentId: string
   userKey: string
+  workspaceId: string
   title: string
   text: string
   index: number
@@ -37,6 +39,7 @@ export interface StackerChunk {
 export interface StackerEntity {
   id: string
   userKey: string
+  workspaceId: string
   name: string
   kind: "topic" | "page" | "date" | "person" | "project" | "unknown"
   documentIds: string[]

@@ -23,6 +23,7 @@ export function chunkDocument(doc: StackerDocument): StackerChunk[] {
         id: `${doc.id}:chunk:${index}`,
         documentId: doc.id,
         userKey: doc.userKey,
+        workspaceId: doc.workspaceId,
         title: doc.title,
         text: slice,
         index,
@@ -50,6 +51,7 @@ export function extractLightweightEntities(docs: StackerDocument[]): StackerEnti
         byName.set(id, {
           id,
           userKey: doc.userKey,
+          workspaceId: doc.workspaceId,
           name,
           kind: "topic",
           documentIds: [doc.id],

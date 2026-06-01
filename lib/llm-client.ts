@@ -34,22 +34,35 @@ export function activeLlmProvider(
     keys?: Partial<Record<KeyedLlmProvider, string | null>>
   } = {},
 ): ProviderName {
-  return resolveProvider({
+  return resolveProviderCandidates({
     provider: normalizeProviderAlias(opts.providerOverride ?? "auto"),
     model: "",
     keys: normalizeKeys(opts.keys),
-  }).provider
+  })[0].provider
 }
 
 export async function generateStructured<T extends z.ZodTypeAny>(
   args: GenerateStructuredArgs<T>,
 ): Promise<z.infer<T>> {
-  const resolved = resolveProvider({
+  const candidates = resolveProviderCandidates({
     provider: normalizeProviderAlias(args.providerOverride ?? "auto"),
     model: args.modelOverride ?? "",
     keys: normalizeKeys(args.keys),
   })
-  const raw = await callProvider(resolved, args.system, args.prompt, args.signal)
+  const errors: string[] = []
+  let raw: string | null = null
+  for (const candidate of candidates) {
+    try {
+      raw = await callProvider(candidate, args.system, args.prompt, args.signal)
+      break
+    } catch (error) {
+      errors.push(`${candidate.provider}: ${error instanceof Error ? error.message : String(error)}`)
+      if (args.signal?.aborted) throw error
+    }
+  }
+  if (raw === null) {
+    throw new Error(`All LLM providers failed: ${errors.join("; ")}`)
+  }
   const json = extractJson(raw)
   const parsed = JSON.parse(json)
   const result = args.schema.safeParse(parsed)
@@ -88,7 +101,7 @@ function normalizeKeys(
   ) as Partial<Record<KeyedLlmProvider, string>>
 }
 
-function resolveProvider(settings: LlmSettings): ResolvedProvider {
+function resolveProviderCandidates(settings: LlmSettings): ResolvedProvider[] {
   const envKey = {
     openai: process.env.OPENAI_API_KEY,
     anthropic: process.env.ANTHROPIC_API_KEY,
@@ -102,18 +115,21 @@ function resolveProvider(settings: LlmSettings): ResolvedProvider {
       ? ["openai", "anthropic", "gemini", "openrouter", "nim", "ollama"]
       : [settings.provider]
 
+  const candidates: ResolvedProvider[] = []
   for (const provider of ordered) {
     const model = settings.provider === "auto"
       ? DEFAULT_MODELS[provider]
       : settings.model || DEFAULT_MODELS[provider]
     if (provider === "ollama") {
-      return { provider, model }
+      candidates.push({ provider, model })
+      continue
     }
     const key = settings.keys[provider] ?? envKey[provider]
-    if (key) return { provider, model, apiKey: key }
+    if (key) candidates.push({ provider, model, apiKey: key })
   }
 
-  throw new Error("No LLM API key configured")
+  if (candidates.length === 0) throw new Error("No LLM API key configured")
+  return candidates
 }
 
 async function callProvider(

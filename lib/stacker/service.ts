@@ -1,10 +1,10 @@
-import { tokenKey } from "@/lib/notion-client"
 import type { CachedSnapshot } from "@/lib/notion-retriever"
 import { buildSubgraph, fetchPageContent, rankPages, snapshotToGraph } from "@/lib/notion-retriever"
 import type { Intent, KnowledgeGraph } from "@/lib/vaultmind-types"
 import { getStackerAdapters } from "./adapters"
 import { chunkDocument, extractLightweightEntities } from "./chunking"
 import { getStackerConfig, stackerServiceHints } from "./config"
+import { resolveWorkspaceIdentity } from "./identity"
 import { memoryCacheAdapter, memoryGraphAdapter, memoryVectorAdapter } from "./memory"
 import type {
   StackerChunk,
@@ -25,12 +25,14 @@ interface StackerRetrieveOptions {
   token?: string | null
   contentLimit: number
   config?: StackerConfig
+  workspaceId?: string | null
 }
 
 interface StackerWorkspaceOptions {
   snapshot: CachedSnapshot
   token?: string | null
   config?: StackerConfig
+  workspaceId?: string | null
 }
 
 interface StackerSyncOptions extends StackerWorkspaceOptions {
@@ -50,8 +52,14 @@ export async function getStackerWorkspaceGraph({
   snapshot,
   token,
   config = getStackerConfig(),
+  workspaceId,
 }: StackerWorkspaceOptions): Promise<KnowledgeGraph> {
-  const userKey = getUserKey(token, snapshot)
+  const identity = resolveWorkspaceIdentity({
+    workspaceId,
+    token,
+    source: snapshot.source,
+  })
+  const userKey = identity.userKey
   const adapters = getStackerAdapters(config)
   const graph = snapshotToGraph(snapshot)
   await withMemoryFallback(
@@ -78,10 +86,16 @@ export async function syncStackerWorkspace({
   token,
   config = getStackerConfig(),
   maxDocuments = 50,
+  workspaceId,
 }: StackerSyncOptions) {
-  const userKey = getUserKey(token, snapshot)
+  const identity = resolveWorkspaceIdentity({
+    workspaceId,
+    token,
+    source: snapshot.source,
+  })
+  const userKey = identity.userKey
   const adapters = getStackerAdapters(config)
-  const graph = await getStackerWorkspaceGraph({ snapshot, token, config })
+  const graph = await getStackerWorkspaceGraph({ snapshot, token, config, workspaceId })
   const pages = Array.from(snapshot.pages.values()).slice(0, maxDocuments)
   const contents = await Promise.all(
     pages.map(page => fetchPageContent(page.id, token).catch(() => null)),
@@ -91,6 +105,7 @@ export async function syncStackerWorkspace({
     .map(content => ({
       id: content.id,
       userKey,
+      workspaceId: identity.workspaceId,
       source: snapshot.usingMock ? "mock" : "notion",
       title: content.title,
       type: content.type,
@@ -145,8 +160,14 @@ export async function retrieveWithStacker({
   token,
   contentLimit,
   config = getStackerConfig(),
+  workspaceId,
 }: StackerRetrieveOptions): Promise<StackerRetrievalContext> {
-  const userKey = getUserKey(token, snapshot)
+  const identity = resolveWorkspaceIdentity({
+    workspaceId,
+    token,
+    source: snapshot.source,
+  })
+  const userKey = identity.userKey
   const adapters = getStackerAdapters(config)
   const retrievalKey = cacheKey(userKey, `retrieval:${intent}:${query}:${contentLimit}`)
   const cached = await withMemoryFallback(
@@ -166,6 +187,7 @@ export async function retrieveWithStacker({
     .map(content => ({
       id: content.id,
       userKey,
+      workspaceId: identity.workspaceId,
       source: snapshot.usingMock ? "mock" : "notion",
       title: content.title,
       type: content.type,
@@ -303,10 +325,6 @@ function mergeDocuments(
   const byId = new Map<string, StackerDocument>()
   for (const doc of [...primary, ...secondary]) byId.set(doc.id, doc)
   return Array.from(byId.values())
-}
-
-function getUserKey(token: string | null | undefined, snapshot: CachedSnapshot): string {
-  return `${snapshot.source}:${tokenKey(token)}`
 }
 
 function cacheKey(userKey: string, key: string): string {

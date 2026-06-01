@@ -1,6 +1,6 @@
 import { memoryCacheAdapter, memoryGraphAdapter, memoryVectorAdapter } from "./memory"
 import { neo4jGraphAdapter } from "./neo4j"
-import { pgvectorAdapter, postgresStoreAdapter } from "./postgres"
+import { pgvectorAdapter, postgresGraphAdapter, postgresStoreAdapter } from "./postgres"
 import { redisCacheAdapter } from "./redis"
 import type {
   StackerCacheAdapter,
@@ -29,7 +29,11 @@ export function getStackerAdapters(config: StackerConfig): {
     store: config.store === "postgres-pgvector" || config.vector === "pgvector"
       ? postgresStoreAdapter
       : memoryStoreAdapter,
-    graph: config.graph === "neo4j" ? neo4jGraphAdapter : memoryGraphAdapter,
+    graph: config.graph === "neo4j"
+      ? neo4jGraphAdapter
+      : config.graph === "postgres"
+        ? postgresGraphAdapter
+        : memoryGraphAdapter,
     vector: config.vector === "pgvector" || config.store === "postgres-pgvector"
       ? pgvectorAdapter
       : memoryVectorAdapter,

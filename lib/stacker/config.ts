@@ -6,7 +6,11 @@ export function getStackerConfig(): StackerConfig {
     store: process.env.VAULTMIND_STACKER_STORE === "postgres-pgvector"
       ? "postgres-pgvector"
       : "memory",
-    graph: process.env.VAULTMIND_STACKER_GRAPH === "neo4j" ? "neo4j" : "memory",
+    graph: process.env.VAULTMIND_STACKER_GRAPH === "neo4j"
+      ? "neo4j"
+      : process.env.VAULTMIND_STACKER_GRAPH === "postgres"
+        ? "postgres"
+        : "memory",
     vector: process.env.VAULTMIND_STACKER_VECTOR === "chroma"
       ? "chroma"
       : process.env.VAULTMIND_STACKER_VECTOR === "pgvector"
@@ -23,6 +27,9 @@ export function stackerServiceHints(config = getStackerConfig()): string[] {
   }
   if (config.graph === "neo4j" && !process.env.NEO4J_URI) {
     hints.push("NEO4J_URI is not set; graph persistence will stay in memory.")
+  }
+  if (config.graph === "postgres" && !process.env.DATABASE_URL) {
+    hints.push("DATABASE_URL is not set; Postgres graph persistence will stay in memory.")
   }
   if (config.vector === "chroma" && !process.env.CHROMA_URL) {
     hints.push("CHROMA_URL is not set; vector search will stay lexical/in memory.")
