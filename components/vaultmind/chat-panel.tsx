@@ -28,6 +28,7 @@ interface ChatPanelProps {
   registerCitationRef: (messageId: string, nodeId: string, el: HTMLElement | null) => void
   onOpenMobileSidebar: () => void
   onOpenMobileGraph: () => void
+  onNewChat: () => void
   workspaceGraph: KnowledgeGraph | null
 }
 
@@ -50,6 +51,7 @@ export function ChatPanel(props: ChatPanelProps) {
     registerCitationRef,
     onOpenMobileSidebar,
     onOpenMobileGraph,
+    onNewChat,
     workspaceGraph,
   } = props
 
@@ -160,6 +162,7 @@ export function ChatPanel(props: ChatPanelProps) {
               intent={intent}
               suggestions={suggestions}
               onSuggestionSelect={onInputChange}
+              onNewChat={onNewChat}
               suggestionSeed={suggestionSeed}
               workspaceGraph={workspaceGraph}
             />
@@ -212,12 +215,14 @@ function EmptyChatState({
   intent,
   suggestions,
   onSuggestionSelect,
+  onNewChat,
   suggestionSeed,
   workspaceGraph,
 }: {
   intent: Intent
   suggestions: string[]
   onSuggestionSelect: (value: string) => void
+  onNewChat: () => void
   suggestionSeed: number
   workspaceGraph: KnowledgeGraph | null
 }) {
@@ -236,10 +241,17 @@ function EmptyChatState({
 
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 sm:py-16">
-      <BrandMark className="mb-4 h-12 w-12 rounded-lg" />
+      <button
+        type="button"
+        onClick={onNewChat}
+        className="mb-4 rounded-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-ring"
+        aria-label="Start new chat"
+      >
+        <BrandMark className="h-12 w-12 rounded-lg" />
+      </button>
       <h3 className="text-base font-semibold tracking-tight">Ask anything about your workspace</h3>
       <p className="text-sm text-muted-foreground mt-1.5 max-w-md text-balance px-4">
-        {intentText[intent]} Graphyne queries your Notion vault via MCP and visualizes connections live.
+        {intentText[intent]} Graphyne visualizes connections live.
       </p>
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full px-4">
         {prompts.map(p => (

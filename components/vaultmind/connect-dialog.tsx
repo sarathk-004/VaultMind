@@ -118,8 +118,7 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
             Connect your Notion workspace
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Authorize Graphyne with Notion OAuth. You choose which pages it can read during the
-            Notion permission step.
+            Choose which pages Graphyne can read during the Notion permission step.
           </DialogDescription>
         </DialogHeader>
 

@@ -7,6 +7,7 @@ import { ChatPanel } from "@/components/vaultmind/chat-panel"
 import { KnowledgeGraphPanel } from "@/components/vaultmind/knowledge-graph"
 import { CitationDrawer } from "@/components/vaultmind/citation-drawer"
 import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
+import type { SettingsSection } from "@/components/vaultmind/settings-dialog"
 import { ConnectDialog } from "@/components/vaultmind/connect-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
@@ -20,7 +21,7 @@ import type {
 } from "@/lib/vaultmind-types"
 
 const LOADING_STATUSES = [
-  "Querying workspace via MCP…",
+  "Searching your workspace...",
   "Fetching relevant pages from Notion…",
   "Sending context to model…",
   "Building knowledge graph…",
@@ -49,7 +50,7 @@ const DESKTOP_WALKTHROUGH_STEPS: WalkthroughStep[] = [
   {
     target: '[data-tour="sidebar"]',
     title: "Your workspace lives here",
-    body: "Start new conversations, revisit chat history, connect Notion, and open settings from the sidebar.",
+    body: "Start new conversations, revisit recents, connect Notion, and open settings from the sidebar.",
     placement: "right",
   },
   {
@@ -212,6 +213,7 @@ function GraphynePage() {
   const [citationNodeId, setCitationNodeId] = useState<string | null>(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined)
   const [connectOpen, setConnectOpen] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false)
@@ -519,8 +521,16 @@ function GraphynePage() {
           activeChatId={activeChatId}
           onSelectChat={handleSelectChat}
           onDeleteChat={handleDeleteChat}
+          onToggleStar={id => {
+            setHistory(prev =>
+              prev.map(chat => (chat.id === id ? { ...chat, starred: !chat.starred } : chat)),
+            )
+          }}
           onNewChat={handleNewChat}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={section => {
+            setSettingsSection(section)
+            setSettingsOpen(true)
+          }}
           onOpenConnect={() => setConnectOpen(true)}
           workspaceConnected={workspace.connected}
           workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
@@ -542,8 +552,14 @@ function GraphynePage() {
             activeChatId={activeChatId}
             onSelectChat={handleSelectChat}
             onDeleteChat={handleDeleteChat}
+            onToggleStar={id => {
+              setHistory(prev =>
+                prev.map(chat => (chat.id === id ? { ...chat, starred: !chat.starred } : chat)),
+              )
+            }}
             onNewChat={handleNewChat}
-            onOpenSettings={() => {
+            onOpenSettings={section => {
+              setSettingsSection(section)
               setSettingsOpen(true)
               setMobileSidebarOpen(false)
             }}
@@ -579,6 +595,7 @@ function GraphynePage() {
           registerCitationRef={registerCitationRef}
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
           onOpenMobileGraph={() => setMobileGraphOpen(true)}
+          onNewChat={handleNewChat}
           workspaceGraph={workspace.graph}
         />
       </div>
@@ -633,7 +650,11 @@ function GraphynePage() {
       {/* Settings dialog */}
       <SettingsDialog
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={open => {
+          setSettingsOpen(open)
+          if (!open) setSettingsSection(undefined)
+        }}
+        initialSection={settingsSection}
         showFullGraph={showFullGraph}
         onShowFullGraphChange={setShowFullGraph}
         workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}

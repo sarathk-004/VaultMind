@@ -20,7 +20,7 @@ const NODE_WIDTH = 140
 const NODE_HEIGHT = 40
 // Keep unrelated nodes readable without letting sparse pages drift too far.
 const MIN_SEPARATION = 220
-const COLLISION_PADDING = 24
+const COLLISION_PADDING = 44
 
 function seededRandom(seed: string) {
   let h = 0
@@ -238,6 +238,47 @@ export function simulateLayout(
       n.x = Math.max(boundPadding, Math.min(width - boundPadding, n.x))
       n.y = Math.max(boundPadding, Math.min(height - boundPadding, n.y))
     }
+  }
+
+  for (let pass = 0; pass < 120; pass++) {
+    let moved = false
+    for (let i = 0; i < sim.length; i++) {
+      for (let j = i + 1; j < sim.length; j++) {
+        const a = sim[i]
+        const b = sim[j]
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) {
+          const angle = rand() * Math.PI * 2
+          dx = Math.cos(angle) * 0.01
+          dy = Math.sin(angle) * 0.01
+        }
+        const overlapX = NODE_WIDTH + COLLISION_PADDING - Math.abs(dx)
+        const overlapY = NODE_HEIGHT + COLLISION_PADDING - Math.abs(dy)
+
+        if (overlapX <= 0 || overlapY <= 0) continue
+
+        moved = true
+        if (overlapX < overlapY) {
+          const push = overlapX / 2 + 0.5
+          const dir = Math.sign(dx) || 1
+          a.x -= push * dir
+          b.x += push * dir
+        } else {
+          const push = overlapY / 2 + 0.5
+          const dir = Math.sign(dy) || 1
+          a.y -= push * dir
+          b.y += push * dir
+        }
+
+        const boundPadding = NODE_WIDTH / 2 + 50
+        a.x = Math.max(boundPadding, Math.min(width - boundPadding, a.x))
+        b.x = Math.max(boundPadding, Math.min(width - boundPadding, b.x))
+        a.y = Math.max(boundPadding, Math.min(height - boundPadding, a.y))
+        b.y = Math.max(boundPadding, Math.min(height - boundPadding, b.y))
+      }
+    }
+    if (!moved) break
   }
 
   return sim.map(n => ({

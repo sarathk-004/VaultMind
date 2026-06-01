@@ -27,12 +27,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Loader2, LogOut, Sun, Moon, Settings } from "lucide-react"
+import { Brain, Eye, Loader2, LogOut, Moon, Palette, Plug, Settings, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
+
+export type SettingsSection = "appearance" | "models" | "graph" | "workspace"
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  initialSection?: SettingsSection
   showFullGraph: boolean
   onShowFullGraphChange: (v: boolean) => void
   workspaceLabel?: string
@@ -117,6 +120,7 @@ interface PublicLlmSettings {
 export function SettingsDialog({
   open,
   onOpenChange,
+  initialSection,
   showFullGraph,
   onShowFullGraphChange,
   workspaceLabel,
@@ -233,18 +237,21 @@ export function SettingsDialog({
             Settings
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Configure how Graphyne queries your workspace and renders the graph.
+            Configure appearance, models, graph display, and workspace access.
           </DialogDescription>
         </DialogHeader>
 
-        <Accordion type="multiple" defaultValue={[]} className="py-1">
+        <Accordion key={initialSection ?? "default"} type="multiple" defaultValue={initialSection ? [initialSection] : []} className="py-1">
           <AccordionItem value="appearance">
             <AccordionTrigger className="py-3 hover:no-underline">
-              <div>
+              <div className="flex items-start gap-2 text-left">
+                <Palette className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
+                <div>
                 <div>Appearance</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
                   {mounted && resolvedTheme === "light" ? "Light" : "Dark"} theme
                 </p>
+                </div>
               </div>
             </AccordionTrigger>
             <AccordionContent className="space-y-4 pb-3">
@@ -265,13 +272,16 @@ export function SettingsDialog({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="llm">
+          <AccordionItem value="models">
             <AccordionTrigger className="py-3 hover:no-underline">
-              <div>
-                <div>Provider and model</div>
+              <div className="flex items-start gap-2 text-left">
+                <Brain className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
+                <div>
+                <div>Models</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
                   {providerSummary}
                 </p>
+                </div>
               </div>
             </AccordionTrigger>
             <AccordionContent className="space-y-3 pb-3">
@@ -387,11 +397,14 @@ export function SettingsDialog({
 
           <AccordionItem value="graph">
             <AccordionTrigger className="py-3 hover:no-underline">
-              <div>
+              <div className="flex items-start gap-2 text-left">
+                <Eye className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
+                <div>
                 <div>Graph display</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
                   Full graph {showFullGraph ? "on" : "off"}
                 </p>
+                </div>
               </div>
             </AccordionTrigger>
             <AccordionContent className="space-y-4 pb-3">
@@ -410,16 +423,19 @@ export function SettingsDialog({
 
           <AccordionItem value="workspace">
             <AccordionTrigger className="py-3 hover:no-underline">
-              <div>
+              <div className="flex items-start gap-2 text-left">
+                <Plug className="mt-0.5 h-4 w-4 text-muted-foreground" aria-hidden />
+                <div>
                 <div>Workspace</div>
                 <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
                   {workspaceLabel ?? "Not connected"}
                 </p>
+                </div>
               </div>
             </AccordionTrigger>
             <AccordionContent className="pb-3">
               <div className="space-y-4">
-                <Row label="Workspace" hint="Connected via MCP / Notion API.">
+                <Row label="Workspace" hint="Connected through your Notion authorization.">
                 <span className="text-xs text-foreground/80 flex items-center gap-1.5">
                   <span
                     className={

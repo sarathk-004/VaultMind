@@ -46,6 +46,7 @@ export interface ChatHistoryItem {
   preview: string
   createdAt: number
   messages: ChatMessage[]
+  starred?: boolean
 }
 
 export interface NoteContent {
