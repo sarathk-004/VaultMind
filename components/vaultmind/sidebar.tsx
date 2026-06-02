@@ -10,6 +10,7 @@ import {
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
+  Pin,
   Plus,
   Plug,
   Search,
@@ -136,9 +137,8 @@ export function Sidebar({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+                className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
                 aria-label="Search chats"
-                title="Search chats"
               >
                 <Search className="h-4 w-4" />
               </Button>
@@ -196,10 +196,9 @@ export function Sidebar({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+              className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               onClick={() => onCollapsedChange(!collapsed)}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
             </Button>
@@ -214,10 +213,9 @@ export function Sidebar({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+                className="h-7 w-7 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
                 aria-label="Expand sidebar"
                 onClick={() => onCollapsedChange(false)}
-                title="Expand sidebar"
               >
                 <PanelLeftOpen className="h-4 w-4" />
               </Button>
@@ -227,9 +225,8 @@ export function Sidebar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+                  className="h-7 w-7 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
                   aria-label="Search chats"
-                  title="Search chats"
                 >
                   <Search className="h-4 w-4" />
                 </Button>
@@ -286,7 +283,7 @@ export function Sidebar({
             size={collapsed ? "icon" : "sm"}
             onClick={onNewChat}
             className={cn(
-              "h-8 text-xs hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40",
+              "h-8 text-xs hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40",
               collapsed ? "w-8 px-0" : "w-full justify-start px-3"
             )}
             aria-label="New chat"
@@ -334,7 +331,7 @@ export function Sidebar({
             <button
               type="button"
               className={cn(
-                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40",
+                "flex min-w-0 items-center gap-2 rounded-md transition-colors hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40",
                 collapsed ? "justify-center p-1" : "w-full px-1 py-1 text-left",
               )}
               aria-label="Account menu"
@@ -483,8 +480,8 @@ function ChatSection({
                   className={cn(
                     "w-full rounded-md px-2.5 py-2 text-left transition-all duration-200 ease-out active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none",
                     active
-                      ? "bg-slate-100 dark:bg-slate-800/60 text-foreground"
-                      : "text-foreground/90 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground",
+                      ? "bg-slate-100 dark:bg-[#1b1b1b] text-foreground"
+                      : "text-foreground/90 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground",
                   )}
                 >
                   <div className="mb-0.5 flex items-center gap-2 pr-8">
@@ -494,7 +491,7 @@ function ChatSection({
                         active ? "text-foreground/80" : "text-muted-foreground group-hover:text-foreground",
                       )}
                     />
-                    {chat.starred && <Star className="h-3 w-3 shrink-0 fill-muted-foreground/70 text-muted-foreground/70" />}
+                    {chat.starred && <Pin className="h-3 w-3 shrink-0 -rotate-45 fill-muted-foreground/70 text-muted-foreground/70" />}
                     <span className="truncate text-xs font-medium">{chat.title}</span>
                   </div>
                   <p className="truncate pl-5 pr-8 text-[11px] leading-relaxed text-muted-foreground">
@@ -513,8 +510,8 @@ function ChatSection({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" sideOffset={4} className="w-36">
                     <DropdownMenuItem onClick={() => onToggleStar(chat.id)} className="text-xs">
-                      <Star className={cn("h-4 w-4", chat.starred && "fill-current")} />
-                      {chat.starred ? "Unstar" : "Star"}
+                      <Pin className={cn("h-4 w-4 -rotate-45", chat.starred && "fill-current")} />
+                      {chat.starred ? "Unpin" : "Pin"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onDeleteChat(chat.id)}

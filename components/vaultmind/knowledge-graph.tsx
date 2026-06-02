@@ -67,7 +67,10 @@ function GraphLoadingView() {
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary/15">
           <Network className="h-6 w-6 text-[#CECBF6] animate-pulse" />
         </div>
-        <h3 className="text-base font-semibold tracking-tight text-foreground/90 transition-all duration-300 min-w-[240px]">
+        <h3
+          key={index}
+          className="text-base font-semibold tracking-tight text-foreground/90 min-w-[240px] animate-loading-text"
+        >
           {words[index]}
         </h3>
         <p className="text-[11px] text-muted-foreground/75 max-w-[200px] leading-normal">
@@ -616,16 +619,16 @@ function GraphCanvas({
           <h2 className="text-sm font-medium tracking-tight">Knowledge Graph</h2>
         </div>
         <div className="flex items-center gap-1 pr-8 lg:pr-0">
-          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
             <ZoomIn className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+            className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
             onClick={relocateToActive}
             aria-label={locateLabel}
             title={locateLabel}
@@ -636,7 +639,7 @@ function GraphCanvas({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+            className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
             onClick={onToggleFullscreen}
             aria-label={fullscreen ? "Close fullscreen" : "Expand graph"}
           >

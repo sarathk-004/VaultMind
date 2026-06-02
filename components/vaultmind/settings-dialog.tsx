@@ -21,8 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Brain, Eye, Loader2, LogOut, Moon, Palette, Plug, Sun } from "lucide-react"
+import { Brain, Check, Eye, Loader2, LogOut, Moon, Palette, Plug, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
+import { cn } from "@/lib/utils"
 
 export type SettingsSection = "appearance" | "models" | "graph" | "workspace"
 
@@ -129,6 +130,7 @@ export function SettingsDialog({
   const [autoKeyProvider, setAutoKeyProvider] = useState<Exclude<LlmProvider, "auto" | "ollama">>("openai")
   const [apiKey, setApiKey] = useState("")
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -200,7 +202,8 @@ export function SettingsDialog({
       const data = (await res.json()) as PublicLlmSettings
       setLlmSettings(data)
       setApiKey("")
-      setStatus("Saved. Future answers and graph linking will use this setting.")
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
       onLlmSettingsChange?.()
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Failed to save settings.")
@@ -383,7 +386,7 @@ export function SettingsDialog({
                   label={`${selectedKeyProvider?.label ?? selectedProvider.label} API key`}
                   hint={
                     selectedHasKey
-                      ? "A key is already saved in an HTTP-only cookie. Enter a new one only to replace it."
+                      ? undefined
                       : "Stored in an HTTP-only cookie for this browser."
                   }
                 >
@@ -419,13 +422,29 @@ export function SettingsDialog({
                 </p>
               )}
 
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[11px] text-muted-foreground">
-                  No usable LLM key means Graphyne tries fast fallbacks, then uses traditional synthesis.
+              <div className="flex items-center justify-between gap-3 mt-4">
+                <p className="text-[11px] text-muted-foreground text-left max-w-[70%] leading-normal">
+                  {selectedHasKey && "A key is already saved in an HTTP-only cookie. Enter a new one only to replace it."}
                 </p>
-                <Button size="sm" onClick={saveLlmSettings} disabled={saving}>
-                  {saving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                  Save
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={saveLlmSettings}
+                  disabled={saving || saved}
+                  className={cn(
+                    "shrink-0 transition-all duration-300",
+                    saved && "border-green-500 bg-green-50/10 text-green-500 dark:bg-green-950/20 dark:text-green-400"
+                  )}
+                >
+                  {saving ? (
+                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                  ) : saved ? (
+                    <span className="flex items-center gap-1.5 animate-in fade-in zoom-in-75 duration-200">
+                      <Check className="h-3.5 w-3.5" /> Saved!
+                    </span>
+                  ) : (
+                    "Save"
+                  )}
                 </Button>
               </div>
               {status && <p className="text-[11px] text-muted-foreground">{status}</p>}

@@ -174,38 +174,21 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="flex items-center justify-end gap-2 pt-1">
             <Button
               type="button"
-              variant="outline"
               size="sm"
-              onClick={handleLogout}
-              disabled={submitting || loggingOut || !hasOAuthConnection}
-              className="text-xs text-foreground/80 hover:text-foreground"
+              onClick={handleConnect}
+              disabled={submitting || loggingOut}
+              className="gap-1.5 text-xs"
             >
-              {loggingOut ? (
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+              {submitting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
-                <LogOut className="mr-1.5 h-3 w-3" />
+                <ExternalLink className="h-3 w-3" />
               )}
-              Log out
+              {submitting ? "Opening..." : "Continue with Notion"}
             </Button>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleConnect}
-                disabled={submitting || loggingOut}
-                className="gap-1.5 text-xs"
-              >
-                {submitting ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <ExternalLink className="h-3 w-3" />
-                )}
-                {submitting ? "Opening..." : "Continue with Notion"}
-              </Button>
-            </div>
           </div>
         </div>
       </DialogContent>

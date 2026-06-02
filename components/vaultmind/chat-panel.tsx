@@ -241,14 +241,9 @@ function EmptyChatState({
 
   return (
     <div className="flex flex-col items-center justify-center text-center py-10 sm:py-16">
-      <button
-        type="button"
-        onClick={onNewChat}
-        className="mb-4 rounded-lg transition-transform hover:scale-105 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 active:bg-transparent"
-        aria-label="Start new chat"
-      >
+      <div className="mb-4 select-none">
         <BrandMark className="h-12 w-12 rounded-lg" />
-      </button>
+      </div>
       <h3 className="text-2xl font-semibold tracking-tight">Ask anything about your workspace</h3>
       <p className="text-lg text-muted-foreground mt-2 max-w-xl text-balance px-4">
         {intentText[intent]}
@@ -436,7 +431,7 @@ function shuffleWithRng<T>(items: T[], rng: () => number): T[] {
 function TypingIndicator({ status }: { status: string }) {
   return (
     <div className="flex gap-3">
-      <BrandMark className="mt-0.5 h-7 w-7 shrink-0" />
+      <BrandMark className="mt-0.5 h-7 w-7 shrink-0 animate-logo-respond" />
       <div className="flex flex-col gap-2 pt-1.5">
         <div className="flex items-center gap-1.5">
           <span className="vm-dot h-1.5 w-1.5 rounded-full bg-primary" />

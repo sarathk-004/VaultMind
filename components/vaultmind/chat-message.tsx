@@ -469,7 +469,7 @@ export function ChatMessageBubble({
 
   return (
     <div className="flex gap-3">
-      <BrandMark className="mt-0.5 h-7 w-7 shrink-0" />
+      <BrandMark className="mt-0.5 h-7 w-7 shrink-0 animate-logo-respond" />
       <div className="flex-1 min-w-0">
         <div className="text-xs font-medium text-muted-foreground mb-1.5">Graphyne</div>
         <div className="text-sm leading-relaxed text-foreground/95">
