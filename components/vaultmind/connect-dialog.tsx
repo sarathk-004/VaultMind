@@ -79,7 +79,8 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
         return
       }
 
-      window.open(data.authorizeUrl, "_blank")
+      const redirectUrl = `/connect-redirect?url=${encodeURIComponent(data.authorizeUrl)}`
+      window.open(redirectUrl, "_blank")
       setSubmitting(false)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err))

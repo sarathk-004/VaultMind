@@ -230,15 +230,6 @@ function GraphynePage() {
 
     if (notionStatus === "connected") {
       void reloadWorkspace()
-      setStatusDialog({
-        open: true,
-        title: "Workspace Connected",
-        description: "Your Notion workspace has been successfully connected to Graphyne.",
-        onClose: () => {
-          setSettingsSection("workspace")
-          setSettingsOpen(true)
-        },
-      })
     } else if (notionStatus === "error") {
       setStatusDialog({
         open: true,
