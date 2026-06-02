@@ -13,6 +13,71 @@ import {
   type PositionedNode,
 } from "@/lib/graph-layout"
 
+function GraphLoadingView() {
+  const words = [
+    "Knowledge is loading...",
+    "Knowledge is mapping...",
+    "Knowledge is connecting...",
+    "Knowledge is clustering...",
+    "Knowledge is almost here...",
+  ]
+  const [index, setIndex] = useState(0)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex(prev => (prev + 1) % words.length)
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-sidebar/85 backdrop-blur-md transition-all duration-300">
+      {/* background network animation */}
+      <div className="absolute inset-0 opacity-40 pointer-events-none">
+        <svg viewBox="0 0 100 100" className="h-full w-full stroke-muted-foreground/20 fill-none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+          <path d="M10 10 L30 45 L50 60 L75 50 L90 55" className="stroke-muted-foreground/35 fill-none stroke-[0.3] animate-pulse" style={{ animationDuration: '4s' }} />
+          <path d="M15 15 L35 25 L50 15 L70 30 L85 20" className="stroke-muted-foreground/35 fill-none stroke-[0.3] animate-pulse" style={{ animationDuration: '3s', animationDelay: '1s' }} />
+          <path d="M20 85 L40 75 L60 80 L80 70 L95 85" className="stroke-muted-foreground/35 fill-none stroke-[0.3] animate-pulse" style={{ animationDuration: '4.5s', animationDelay: '0.5s' }} />
+          <path d="M30 45 L35 25 L40 75" className="stroke-muted-foreground/35 fill-none stroke-[0.3] animate-pulse" style={{ animationDuration: '3.5s', animationDelay: '1.5s' }} />
+          <path d="M50 60 L50 15 L60 80" className="stroke-muted-foreground/35 fill-none stroke-[0.3] animate-pulse" style={{ animationDuration: '4.2s', animationDelay: '2s' }} />
+          <path d="M70 30 L75 50 L80 70" className="stroke-muted-foreground/35 fill-none stroke-[0.3] animate-pulse" style={{ animationDuration: '5s', animationDelay: '2.5s' }} />
+        </svg>
+
+        {/* flickering pixels */}
+        <span className="absolute h-2 w-2 rounded-full bg-[#CECBF6] animate-ping" style={{ left: "15%", top: "15%", animationDuration: "3s" }} />
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#D9592A] animate-ping" style={{ left: "35%", top: "25%", animationDuration: "2.5s" }} />
+        <span className="absolute h-2 w-2 rounded-full bg-[#FAFAFA] animate-ping" style={{ left: "50%", top: "15%", animationDuration: "4s" }} />
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#CECBF6] animate-ping" style={{ left: "70%", top: "30%", animationDuration: "3.5s" }} />
+        <span className="absolute h-2 w-2 rounded-full bg-[#D9592A] animate-ping" style={{ left: "85%", top: "20%", animationDuration: "2.8s" }} />
+
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#FAFAFA] animate-ping" style={{ left: "10%", top: "50%", animationDuration: "3.2s" }} />
+        <span className="absolute h-2 w-2 rounded-full bg-[#CECBF6] animate-ping" style={{ left: "30%", top: "45%", animationDuration: "2.2s" }} />
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#D9592A] animate-ping" style={{ left: "50%", top: "60%", animationDuration: "3.8s" }} />
+        <span className="absolute h-2.5 w-2.5 rounded-full bg-[#FAFAFA] animate-ping" style={{ left: "75%", top: "50%", animationDuration: "2.9s" }} />
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#CECBF6] animate-ping" style={{ left: "90%", top: "55%", animationDuration: "3.4s" }} />
+
+        <span className="absolute h-2 w-2 rounded-full bg-[#D9592A] animate-ping" style={{ left: "20%", top: "85%", animationDuration: "3.6s" }} />
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#FAFAFA] animate-ping" style={{ left: "40%", top: "75%", animationDuration: "2.4s" }} />
+        <span className="absolute h-2 w-2 rounded-full bg-[#CECBF6] animate-ping" style={{ left: "60%", top: "80%", animationDuration: "4.2s" }} />
+        <span className="absolute h-1.5 w-1.5 rounded-full bg-[#D9592A] animate-ping" style={{ left: "80%", top: "70%", animationDuration: "3.1s" }} />
+        <span className="absolute h-2 w-2 rounded-full bg-[#FAFAFA] animate-ping" style={{ left: "95%", top: "85%", animationDuration: "2.7s" }} />
+      </div>
+
+      <div className="relative z-10 flex flex-col items-center gap-3.5 px-6 text-center select-none">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary/15">
+          <Network className="h-6 w-6 text-[#CECBF6] animate-pulse" />
+        </div>
+        <h3 className="text-base font-semibold tracking-tight text-foreground/90 transition-all duration-300 min-w-[240px]">
+          {words[index]}
+        </h3>
+        <p className="text-[11px] text-muted-foreground/75 max-w-[200px] leading-normal">
+          connecting thoughts and mapping ideas live...
+        </p>
+      </div>
+    </div>
+  )
+}
+
 interface KnowledgeGraphPanelProps {
   workspaceGraph: KnowledgeGraph | null
   focusedGraph: KnowledgeGraph | null
@@ -30,15 +95,40 @@ const MAX_ZOOM = 3
 
 export function KnowledgeGraphPanel(props: KnowledgeGraphPanelProps) {
   const [fullscreen, setFullscreen] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(420)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = panelWidth
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = startX - moveEvent.clientX
+      // Clamp between 300px and 750px
+      const nextWidth = Math.max(300, Math.min(750, startWidth + delta))
+      setPanelWidth(nextWidth)
+    }
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+  }
 
   return (
     <>
       <aside
         className={
-          "flex flex-col h-full w-full lg:w-[420px] lg:shrink-0 lg:border-l border-border bg-sidebar " +
+          "flex flex-col h-full w-full lg:w-[var(--panel-width)] lg:shrink-0 lg:border-l border-border bg-sidebar relative " +
           (props.className ?? "")
         }
+        style={{ "--panel-width": `${panelWidth}px` } as React.CSSProperties}
       >
+        {/* Resize Handle */}
+        <div
+          className="hidden lg:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-50 transition-colors"
+          onMouseDown={handleMouseDown}
+        />
         <GraphCanvas {...props} fullscreen={false} onToggleFullscreen={() => setFullscreen(true)} />
       </aside>
 
@@ -524,21 +614,18 @@ function GraphCanvas({
         <div className="flex items-center gap-2 min-w-0">
           <Network className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
           <h2 className="text-sm font-medium tracking-tight">Knowledge Graph</h2>
-          {workspaceLoading && (
-            <span className="text-xs text-muted-foreground ml-2 truncate">Loading workspace…</span>
-          )}
         </div>
         <div className="flex items-center gap-1 pr-8 lg:pr-0">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40" onClick={() => zoomBy(1.2)} aria-label="Zoom in">
             <ZoomIn className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom out">
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
             onClick={relocateToActive}
             aria-label={locateLabel}
             title={locateLabel}
@@ -549,7 +636,7 @@ function GraphCanvas({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
             onClick={onToggleFullscreen}
             aria-label={fullscreen ? "Close fullscreen" : "Expand graph"}
           >
@@ -567,6 +654,9 @@ function GraphCanvas({
           if (e.pointerType === "mouse") setHoveredId(null)
         }}
       >
+        {workspaceLoading && (
+          <GraphLoadingView />
+        )}
         {isEmpty && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 pointer-events-none">
             <Network className="h-8 w-8 text-muted-foreground/40 mb-3" aria-hidden />

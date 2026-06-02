@@ -209,6 +209,33 @@ export function SettingsDialog({
     }
   }
 
+  const deleteLlmKey = async (targetProvider: string) => {
+    setSaving(true)
+    setStatus(null)
+    try {
+      const res = await fetch("/api/vaultmind/llm-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          provider,
+          model,
+          keys: { [targetProvider]: null },
+        }),
+      })
+      if (!res.ok) throw new Error(`Status ${res.status}`)
+      const data = (await res.json()) as PublicLlmSettings
+      setLlmSettings(data)
+      setApiKey("")
+      setStatus("Key deleted successfully.")
+      onLlmSettingsChange?.()
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to delete key.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleLogout = async () => {
     setLoggingOut(true)
     setLogoutError(null)
@@ -360,15 +387,29 @@ export function SettingsDialog({
                       : "Stored in an HTTP-only cookie for this browser."
                   }
                 >
-                  <Input
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={apiKey}
-                    onChange={e => setApiKey(e.target.value)}
-                    placeholder={selectedHasKey ? "Saved key present" : "Paste API key"}
-                    className="font-mono text-xs"
-                  />
+                  <div className="relative flex items-center">
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={apiKey}
+                      onChange={e => setApiKey(e.target.value)}
+                      placeholder={selectedHasKey ? "Saved key present" : "Paste API key"}
+                      className="font-mono text-xs pr-20"
+                    />
+                    {selectedHasKey && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteLlmKey(keyProvider)}
+                        className="absolute right-1 h-7 text-[10px] font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive focus:ring-0"
+                        disabled={saving}
+                      >
+                        Delete key
+                      </Button>
+                    )}
+                  </div>
                 </Field>
               ) : (
                 <p className="rounded-md border border-border bg-card px-3 py-2 text-[11px] text-muted-foreground">

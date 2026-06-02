@@ -244,14 +244,14 @@ function EmptyChatState({
       <button
         type="button"
         onClick={onNewChat}
-        className="mb-4 rounded-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-muted-foreground/20"
+        className="mb-4 rounded-lg transition-transform hover:scale-105 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 active:bg-transparent"
         aria-label="Start new chat"
       >
         <BrandMark className="h-12 w-12 rounded-lg" />
       </button>
       <h3 className="text-2xl font-semibold tracking-tight">Ask anything about your workspace</h3>
       <p className="text-lg text-muted-foreground mt-2 max-w-xl text-balance px-4">
-        {intentText[intent]} Graphyne visualizes connections live.
+        {intentText[intent]}
       </p>
       <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl w-full px-4">
         {prompts.map(p => (

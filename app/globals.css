@@ -147,6 +147,7 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-tap-highlight-color: transparent;
   }
   html,
   body {
@@ -155,6 +156,12 @@
   button:enabled,
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
+  }
+  [data-slot="skeleton"] {
+    background-color: #dedede !important;
+  }
+  .dark [data-slot="skeleton"] {
+    background-color: #262626 !important;
   }
 }
 
