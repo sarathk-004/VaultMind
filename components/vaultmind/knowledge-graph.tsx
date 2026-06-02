@@ -688,7 +688,7 @@ function GraphCanvas({
           ref={svgRef}
           width="100%"
           height="100%"
-          className="absolute inset-0"
+          className={`absolute inset-0 ${workspaceLoading ? "invisible" : ""}`}
           role="img"
           aria-label="Knowledge graph visualization"
           style={{ touchAction: "none" }}

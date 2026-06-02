@@ -208,7 +208,7 @@ function GraphynePage() {
 
   useEffect(() => {
     const cached = readCachedWorkspace()
-    if (cached) {
+    if (cached && cached.connected) {
       setWorkspace({
         graph: cached.graph,
         loading: false,
