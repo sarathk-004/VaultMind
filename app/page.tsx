@@ -10,6 +10,7 @@ import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
 import type { SettingsSection } from "@/components/vaultmind/settings-dialog"
 import { ConnectDialog } from "@/components/vaultmind/connect-dialog"
 import { StatusDialog } from "@/components/vaultmind/status-dialog"
+import { BrandMark } from "@/components/brand/brand-mark"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -229,26 +230,27 @@ function GraphynePage() {
     window.history.replaceState({}, "", url.pathname + url.search)
 
     if (notionStatus === "connected") {
-      void reloadWorkspace()
-      setStatusDialog({
-        open: true,
-        title: "Workspace Connected",
-        description: "Your Notion workspace has been successfully connected to Graphyne.",
-        onClose: () => {
-          setSettingsSection("workspace")
-          setSettingsOpen(true)
-        },
-      })
+      setNotionConnectingPopup(true)
+      setNotionConnectingStep("connecting")
+      reloadWorkspace()
+        .then(() => {
+          setNotionConnectingStep("success")
+          setTimeout(() => {
+            setNotionConnectingPopup(false)
+          }, 3500)
+        })
+        .catch(() => {
+          setNotionConnectingStep("error")
+          setTimeout(() => {
+            setNotionConnectingPopup(false)
+          }, 5000)
+        })
     } else if (notionStatus === "error") {
-      setStatusDialog({
-        open: true,
-        title: "Connection Failed",
-        description: `Failed to connect Notion workspace. Reason: ${notionReason || "unknown"}.`,
-        onClose: () => {
-          setSettingsSection("workspace")
-          setSettingsOpen(true)
-        },
-      })
+      setNotionConnectingPopup(true)
+      setNotionConnectingStep("error")
+      setTimeout(() => {
+        setNotionConnectingPopup(false)
+      }, 5000)
     }
   }, [notionStatus, notionReason, reloadWorkspace])
 
@@ -301,6 +303,8 @@ function GraphynePage() {
     description?: string
     onClose?: () => void
   }>({ open: false, title: "" })
+  const [notionConnectingPopup, setNotionConnectingPopup] = useState(false)
+  const [notionConnectingStep, setNotionConnectingStep] = useState<"connecting" | "success" | "error">("connecting")
   const walkthroughSteps = isMobile ? MOBILE_WALKTHROUGH_STEPS : DESKTOP_WALKTHROUGH_STEPS
 
   useEffect(() => {
@@ -770,6 +774,37 @@ function GraphynePage() {
         description={statusDialog.description}
         onClose={statusDialog.onClose}
       />
+
+      {/* Notion Connection Floating Chat Popup */}
+      {notionConnectingPopup && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-[calc(100vw-2rem)] sm:max-w-sm w-full bg-card/95 backdrop-blur border border-border rounded-xl shadow-2xl p-4 flex gap-3 items-start animate-in slide-in-from-bottom-5 duration-300">
+          <div className="relative shrink-0">
+            <BrandMark className="h-9 w-9 rounded-lg" />
+            {notionConnectingStep === "connecting" && (
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+              </span>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-xs text-foreground tracking-tight">Graphyne</span>
+              <button
+                onClick={() => setNotionConnectingPopup(false)}
+                className="text-muted-foreground hover:text-foreground text-[10px] font-medium"
+              >
+                Close
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground leading-normal mt-1.5">
+              {notionConnectingStep === "connecting" && "We're almost there, please wait while we connect your workspace..."}
+              {notionConnectingStep === "success" && "Workspace connected successfully! Your pages and notes are ready."}
+              {notionConnectingStep === "error" && `Failed to connect workspace. ${notionReason ? `Reason: ${notionReason}` : ""}`}
+            </p>
+          </div>
+        </div>
+      )}
 
       <WalkthroughTour
         open={walkthroughOpen}
