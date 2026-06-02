@@ -420,7 +420,7 @@ export function SettingsDialog({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => deleteLlmKey(keyProvider)}
+                        onClick={() => setDeleteConfirmOpen(true)}
                         className="absolute right-1 h-7 text-[10px] font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive focus:ring-0"
                         disabled={saving}
                       >
@@ -526,6 +526,20 @@ export function SettingsDialog({
             Done
           </Button>
         </DialogFooter>
+
+        <ConfirmDialog
+          open={deleteConfirmOpen}
+          onOpenChange={setDeleteConfirmOpen}
+          title="Delete API Key"
+          description="Are you sure you want to delete the saved API key? This action cannot be undone."
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          confirmVariant="destructive"
+          onConfirm={() => {
+            setDeleteConfirmOpen(false)
+            void handleDeleteConfirm()
+          }}
+        />
       </DialogContent>
     </Dialog>
   )

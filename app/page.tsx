@@ -9,6 +9,7 @@ import { CitationDrawer } from "@/components/vaultmind/citation-drawer"
 import { SettingsDialog } from "@/components/vaultmind/settings-dialog"
 import type { SettingsSection } from "@/components/vaultmind/settings-dialog"
 import { ConnectDialog } from "@/components/vaultmind/connect-dialog"
+import { StatusDialog } from "@/components/vaultmind/status-dialog"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -167,7 +168,9 @@ function writeCachedWorkspace(next: Omit<WorkspaceState, "loading">): void {
 function GraphynePage() {
   const isMobile = useIsMobile()
   const searchParams = useSearchParams()
-  const oauthConnected = searchParams.get("notion") === "connected"
+  const notionStatus = searchParams.get("notion")
+  const notionReason = searchParams.get("reason")
+  const oauthConnected = notionStatus === "connected"
   // ── Workspace snapshot (fetched on mount via /api/vaultmind/workspace) ────
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     graph: null,
@@ -218,9 +221,36 @@ function GraphynePage() {
   }, [reloadWorkspace])
 
   useEffect(() => {
-    if (!oauthConnected) return
-    void reloadWorkspace()
-  }, [oauthConnected, reloadWorkspace])
+    if (!notionStatus) return
+
+    const url = new URL(window.location.href)
+    url.searchParams.delete("notion")
+    url.searchParams.delete("reason")
+    window.history.replaceState({}, "", url.pathname + url.search)
+
+    if (notionStatus === "connected") {
+      void reloadWorkspace()
+      setStatusDialog({
+        open: true,
+        title: "Workspace Connected",
+        description: "Your Notion workspace has been successfully connected to Graphyne.",
+        onClose: () => {
+          setSettingsSection("workspace")
+          setSettingsOpen(true)
+        },
+      })
+    } else if (notionStatus === "error") {
+      setStatusDialog({
+        open: true,
+        title: "Connection Failed",
+        description: `Failed to connect Notion workspace. Reason: ${notionReason || "unknown"}.`,
+        onClose: () => {
+          setSettingsSection("workspace")
+          setSettingsOpen(true)
+        },
+      })
+    }
+  }, [notionStatus, notionReason, reloadWorkspace])
 
   // ── Conversations ────────────────────────────────────────────────────────
   const [history, setHistory] = useState<ChatHistoryItem[]>(SEED_HISTORY)
@@ -265,6 +295,12 @@ function GraphynePage() {
   // Settings — these now actually drive the graph rendering
   const [showFullGraph, setShowFullGraph] = useState(true)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [statusDialog, setStatusDialog] = useState<{
+    open: boolean
+    title: string
+    description?: string
+    onClose?: () => void
+  }>({ open: false, title: "" })
   const walkthroughSteps = isMobile ? MOBILE_WALKTHROUGH_STEPS : DESKTOP_WALKTHROUGH_STEPS
 
   useEffect(() => {
@@ -704,7 +740,19 @@ function GraphynePage() {
         onShowFullGraphChange={setShowFullGraph}
         workspaceLabel={workspace.loading ? "Connecting..." : workspace.connected ? "Notion (live)" : "Connect Notion"}
         workspaceConnected={workspace.connected}
-        onLlmSettingsChange={() => void reloadWorkspace()}
+        onLlmSettingsChange={() => {}}
+        onActionSuccess={(title, description, nextTab) => {
+          setSettingsOpen(false)
+          setStatusDialog({
+            open: true,
+            title,
+            description,
+            onClose: () => {
+              setSettingsSection(nextTab)
+              setSettingsOpen(true)
+            },
+          })
+        }}
       />
 
       {/* Connect dialog - Notion OAuth */}
@@ -712,6 +760,15 @@ function GraphynePage() {
         open={connectOpen}
         onOpenChange={setConnectOpen}
         onConnectionChange={() => void reloadWorkspace()}
+      />
+
+      {/* Status dialog */}
+      <StatusDialog
+        open={statusDialog.open}
+        onOpenChange={open => setStatusDialog(prev => ({ ...prev, open }))}
+        title={statusDialog.title}
+        description={statusDialog.description}
+        onClose={statusDialog.onClose}
       />
 
       <WalkthroughTour
