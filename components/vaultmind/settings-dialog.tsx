@@ -22,6 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Brain, Check, Eye, Loader2, LogOut, Moon, Palette, Plug, Sun } from "lucide-react"
+import { ConfirmDialog } from "@/components/vaultmind/confirm-dialog"
+import { StatusDialog } from "@/components/vaultmind/status-dialog"
 import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 
