@@ -79,7 +79,8 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
         return
       }
 
-      window.location.assign(data.authorizeUrl)
+      window.open(data.authorizeUrl, "_blank")
+      setSubmitting(false)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err))
       setSubmitting(false)
@@ -190,6 +191,9 @@ export function ConnectDialog({ open, onOpenChange, onConnectionChange }: Connec
               {submitting ? "Opening..." : "Continue with Notion"}
             </Button>
           </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed text-right">
+            Tip: If deep-linked into the Notion app, complete authorization in an Incognito tab or disable "Open links in desktop app" in Notion Settings.
+          </p>
         </div>
       </DialogContent>
     </Dialog>

@@ -131,79 +131,81 @@ export function Sidebar({
           <BrandMark className="h-7 w-7" />
           {!collapsed && <span className="text-md font-semibold tracking-tight">graphyne</span>}
         </button>
-        <div className={cn("flex items-center gap-1", collapsed ? "hidden" : "flex")}>
-          <Popover open={searchOpen} onOpenChange={setSearchOpen}>
-            <PopoverTrigger asChild>
+        {!collapsed && (
+          <div className="flex items-center gap-1">
+            <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
+                  aria-label="Search chats"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="start"
+                sideOffset={10}
+                className="w-72 p-3"
+              >
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={searchQuery}
+                    onChange={event => setSearchQuery(event.target.value)}
+                    placeholder="Search chats"
+                    className="h-8 pl-8 text-xs"
+                    autoFocus
+                  />
+                </div>
+                <div className="mt-2 max-h-72 overflow-y-auto">
+                  {history.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                      Your conversations will appear here.
+                    </p>
+                  ) : visibleHistory.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                      No chats match your search.
+                    </p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {visibleHistory.map(chat => (
+                        <li key={chat.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectChat(chat.id)
+                              setSearchOpen(false)
+                            }}
+                            className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <div className="truncate text-xs font-medium">{chat.title}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {chat.preview || "No messages yet"}
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+            {onCollapsedChange && (
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
-                aria-label="Search chats"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                onClick={() => onCollapsedChange(!collapsed)}
               >
-                <Search className="h-4 w-4" />
+                {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="right"
-              align={collapsed ? "center" : "start"}
-              sideOffset={10}
-              className="w-72 p-3"
-            >
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={event => setSearchQuery(event.target.value)}
-                  placeholder="Search chats"
-                  className="h-8 pl-8 text-xs"
-                  autoFocus
-                />
-              </div>
-              <div className="mt-2 max-h-72 overflow-y-auto">
-                {history.length === 0 ? (
-                  <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                    Your conversations will appear here.
-                  </p>
-                ) : visibleHistory.length === 0 ? (
-                  <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                    No chats match your search.
-                  </p>
-                ) : (
-                  <ul className="space-y-0.5">
-                    {visibleHistory.map(chat => (
-                      <li key={chat.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectChat(chat.id)
-                            setSearchOpen(false)
-                          }}
-                  className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <div className="truncate text-xs font-medium">{chat.title}</div>
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            {chat.preview || "No messages yet"}
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-          {onCollapsedChange && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 hover:bg-slate-100 dark:hover:bg-[#1b1b1b] hover:text-foreground active:bg-slate-200 dark:active:bg-slate-700/80 focus:outline-none focus:ring-2 focus:ring-slate-400/40"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={() => onCollapsedChange(!collapsed)}
-            >
-              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">

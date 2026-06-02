@@ -241,30 +241,36 @@ export async function getWorkspaceSnapshot(
     //  - explicit references (link_to_page, @mentions, child_page)
     //  - a plaintext snippet used for similarity scoring
     const pageIds = Array.from(pages.keys())
-    const BATCH = 8
     let linkEdgeCount = 0
     const docTexts = new Map<string, { title: string; body: string }>()
 
-    for (let i = 0; i < pageIds.length; i += BATCH) {
-      const batch = pageIds.slice(i, i + BATCH)
-      const results = await Promise.all(
-        batch.map(id =>
-          fetchPageReferences(id, token).catch(() => ({ ids: [] as string[], text: "" })),
-        ),
-      )
-      results.forEach((res, idx) => {
-        const sourceId = batch[idx]
-        const meta = pages.get(sourceId)
-        docTexts.set(sourceId, { title: meta?.title ?? "", body: res.text })
-
-        for (const targetId of res.ids) {
-          if (pages.has(targetId)) {
-            addEdge(sourceId, targetId, "references")
-            linkEdgeCount++
-          }
+    const limit = 15
+    const results: Array<{ id: string; res: { ids: string[]; text: string } }> = []
+    let poolIndex = 0
+    const worker = async () => {
+      while (poolIndex < pageIds.length) {
+        const id = pageIds[poolIndex++]
+        try {
+          const res = await fetchPageReferences(id, token)
+          results.push({ id, res })
+        } catch {
+          results.push({ id, res: { ids: [], text: "" } })
         }
-      })
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(limit, pageIds.length) }, worker))
+
+    results.forEach(({ id, res }) => {
+      const meta = pages.get(id)
+      docTexts.set(id, { title: meta?.title ?? "", body: res.text })
+
+      for (const targetId of res.ids) {
+        if (pages.has(targetId)) {
+          addEdge(id, targetId, "references")
+          linkEdgeCount++
+        }
+      }
+    })
 
     // Semantic edges: blended concept-tag + stemmed-title + TF-IDF similarity.
     // Surfaces conceptual relationships even between pages that share zero

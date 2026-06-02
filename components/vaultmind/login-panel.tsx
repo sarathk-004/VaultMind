@@ -42,7 +42,8 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
         return
       }
 
-      window.location.assign(data.authorizeUrl)
+      window.open(data.authorizeUrl, "_blank")
+      setSubmitting(false)
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err))
       setSubmitting(false)
@@ -112,6 +113,10 @@ export function LoginPanel({ notion, reason, onBack }: LoginPanelProps) {
           {submitting ? <Loader2 className="mr-3 h-6 w-6 animate-spin" /> : <NotionIcon />}
           {submitting ? "Opening Notion..." : "Sign In with Notion"}
         </Button>
+
+        <p className="mt-4 text-center text-[11px] text-neutral-400 max-w-[460px] leading-relaxed">
+          Tip: If deep-linked into the Notion app, complete authorization in an Incognito tab or disable "Open links in desktop app" in Notion Settings.
+        </p>
 
         {activeError && (
           <div className="mt-5 flex w-full gap-2 border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-100">

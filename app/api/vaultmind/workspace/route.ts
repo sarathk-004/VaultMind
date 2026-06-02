@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
     const llmSettings = await getRequestLlmSettings()
     const snap = await getWorkspaceSnapshot(token, {
       ...providerOptionsFromSettings(llmSettings),
-      budgetMs: hasAvailableLlmProvider(llmSettings) ? 12_000 : 2_500,
+      budgetMs: 2_500,
+      skipLlmClassification: true,
     })
     const stackerConfig = getStackerConfig()
     const graph = isStackerEnabled(stackerConfig)
