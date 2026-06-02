@@ -38,6 +38,7 @@ interface SettingsDialogProps {
   workspaceLabel?: string
   workspaceConnected?: boolean
   onLlmSettingsChange?: () => void
+  onActionSuccess?: (title: string, description: string, nextTab: SettingsSection) => void
 }
 
 type LlmProvider = "auto" | "openai" | "anthropic" | "gemini" | "openrouter" | "nim" | "ollama"
@@ -123,6 +124,7 @@ export function SettingsDialog({
   workspaceLabel,
   workspaceConnected,
   onLlmSettingsChange,
+  onActionSuccess,
 }: SettingsDialogProps) {
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -133,6 +135,7 @@ export function SettingsDialog({
   const [apiKey, setApiKey] = useState("")
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -204,9 +207,13 @@ export function SettingsDialog({
       const data = (await res.json()) as PublicLlmSettings
       setLlmSettings(data)
       setApiKey("")
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
       onLlmSettingsChange?.()
+      onOpenChange(false)
+      onActionSuccess?.(
+        "API Key Saved",
+        "Your API key has been successfully saved in an HTTP-only cookie.",
+        "models"
+      )
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Failed to save settings.")
     } finally {
@@ -214,7 +221,8 @@ export function SettingsDialog({
     }
   }
 
-  const deleteLlmKey = async (targetProvider: string) => {
+  const handleDeleteConfirm = async () => {
+    if (!keyProvider) return
     setSaving(true)
     setStatus(null)
     try {
@@ -225,15 +233,20 @@ export function SettingsDialog({
         body: JSON.stringify({
           provider,
           model,
-          keys: { [targetProvider]: null },
+          keys: { [keyProvider]: null },
         }),
       })
       if (!res.ok) throw new Error(`Status ${res.status}`)
       const data = (await res.json()) as PublicLlmSettings
       setLlmSettings(data)
       setApiKey("")
-      setStatus("Key deleted successfully.")
       onLlmSettingsChange?.()
+      onOpenChange(false)
+      onActionSuccess?.(
+        "API Key Deleted",
+        "The API key has been successfully deleted from your browser cookies.",
+        "models"
+      )
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Failed to delete key.")
     } finally {
