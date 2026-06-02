@@ -18,6 +18,9 @@ export function proxy(req: NextRequest) {
   if (!isLoginRequired()) return NextResponse.next()
 
   const { pathname, search } = req.nextUrl
+  if (pathname.startsWith("/connect-redirect")) {
+    return NextResponse.next()
+  }
   const connected = hasNotionToken(req)
 
   if (pathname.startsWith(LOGIN_PATH)) {
@@ -37,5 +40,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next|favicon.ico|.*\\..*).*)"],
+  matcher: ["/((?!api|_next|favicon.ico|connect-redirect|.*\\..*).*)"],
 }
